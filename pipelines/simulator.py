@@ -96,6 +96,7 @@ class Simulator(BasePipeline):
         timing = []
         for i in range(len(inputs)):
             results[i].append(inputs[i])
+        log.info("rollout total:", str(timesteps))
         for t in tqdm(range(timesteps - 1), "rollout"):
             start = time.time()
             for i in range(len(inputs)):
@@ -176,14 +177,14 @@ class Simulator(BasePipeline):
         log.addHandler(logging.FileHandler(log_file_path))
 
         valid_data = get_rollout(dataset.valid, **cfg.data_generator,
-                                 **cfg.data_generator.valid)
+                                 **cfg.data_generator.valid)  # [batch, timesteps, 6]
 
         if epoch is None:
             epoch = self.load_ckpt(model.cfg.ckpt_path)
 
         log.info("Started validation")
 
-        results = self.run_rollout(valid_data, valid_data[0]["pos"].shape[0])
+        results = self.run_rollout(valid_data, valid_data[0]["pos"].shape[0])  # [batch, timesteps, 6]
 
         losses = []
         for i in tqdm(range(len(valid_data)), desc='validation'):
@@ -191,7 +192,7 @@ class Simulator(BasePipeline):
             target_pos, target_vel = data["pos"], data["vel"]
 
             loss_seq = []
-            for t in range(1, target_pos.shape[0]):
+            for t in range(1, target_pos.shape[0]):  # for every particle
                 # eval for complete sequence
                 pos, vel = results[i][t][:2]
                 loss = {}

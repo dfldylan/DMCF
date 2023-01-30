@@ -1,9 +1,10 @@
-tensorflow==2.5
+#tensorflow==2.5
+pandas==1.1.*
 open3d==0.15.2
 msgpack
 msgpack-numpy
 zstandard
-dm-tree
+dm-tree==0.1.7
 yapf
 pyyaml
 addict

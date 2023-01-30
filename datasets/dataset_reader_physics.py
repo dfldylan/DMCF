@@ -123,12 +123,11 @@ class DatasetGroup:
                 self.train = Dataset(dataset_path=os.path.join(path, "train"),
                                      **dataset_cfg)
 
-            if split != "test":
-                if os.path.exists(os.path.join(path, "valid")):
-                    self.valid = Dataset(dataset_path=os.path.join(path, "valid"),
-                                        **dataset_cfg)
-                else:
-                    self.valid = Dataset(dataset_path=path, **dataset_cfg)
+            if os.path.exists(os.path.join(path, "valid")):
+                self.valid = Dataset(dataset_path=os.path.join(path, "valid"),
+                                    **dataset_cfg)
+            else:
+                self.valid = Dataset(dataset_path=path, **dataset_cfg)
 
             if split != "valid":
                 if os.path.exists(os.path.join(path, "test")):
@@ -136,7 +135,10 @@ class DatasetGroup:
                         path, "test"),
                                         **dataset_cfg)
                 else:
-                    self.test = Dataset(dataset_path=path, **dataset_cfg)
+                    try:
+                        self.test = Dataset(dataset_path=path, **dataset_cfg)
+                    except AssertionError:
+                        self.test = self.valid
 
                 if split == "test":
                     self.valid = self.test
