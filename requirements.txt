@@ -13,3 +13,4 @@ sklearn
 tensorpack
 lapsolver
 python-prctl
+skia-python
