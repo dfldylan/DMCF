@@ -1,6 +1,6 @@
-#tensorflow==2.5
-pandas==1.1.*
-open3d==0.15.2
+tensorflow==2.8.3
+pandas
+open3d==0.16.0
 msgpack
 msgpack-numpy
 zstandard
@@ -9,7 +9,7 @@ yapf
 pyyaml
 addict
 tqdm
-sklearn
+scikit-learn
 tensorpack
 lapsolver
 python-prctl
