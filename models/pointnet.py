@@ -12,7 +12,7 @@ relu = tf.keras.activations.relu
 
 class PointNet(PBFNet):
     def __init__(self,
-                 name="CConv",
+                 name="PointNet",
                  layer_channels=[32, 64, 64, 3],
                  out_activation=None,
                  **kwargs):
