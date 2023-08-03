@@ -3,29 +3,11 @@ import tensorflow as tf
 import open3d.ml.tf as o3dml
 import numpy as np
 from abc import abstractmethod
-from utils.tools.losses import get_loss, compute_density, compute_pressure, get_window_func, get_dilated_pos, compute_transformed_dx
+from utils.tools.losses import get_loss, compute_density, compute_pressure, get_window_func, get_dilated_pos, \
+    compute_transformed_dx
 from utils.convolutions import ContinuousConv, PointSampling
 
 from .base_model import BaseModel
-
-
-@tf.function
-def align_vector(v0, v1):
-    v0_norm = v0 / (tf.norm(v0) + 1e-9)
-    v1_norm = v1 / (tf.norm(v1) + 1e-9)
-
-    v = tf.linalg.cross(v0_norm, v1_norm)
-    c = tf.tensordot(v0_norm, v1_norm, 1)
-    s = tf.norm(v)
-
-    if s < 1e-6:
-        return tf.eye(3) * (-1.0 if c < 0 else 1.0)
-
-    vx = tf.convert_to_tensor([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]],
-                               [-v[1], v[0], 0.0]])
-
-    r = tf.eye(3) + vx + tf.tensordot(vx, vx, 1) / (1 + c)
-    return r
 
 
 class PBFNet(BaseModel):
@@ -72,7 +54,12 @@ class PBFNet(BaseModel):
                  sample_hyst=0.1,
                  part_scale=1.0,
                  **kwargs):
-        super().__init__(name=name, **kwargs)
+        super().__init__(name=name,
+                         timestep=timestep,
+                         particle_radii=particle_radii,
+                         transformation=transformation,
+                         grav=grav,
+                         **kwargs)
         if dens_radius is None:
             dens_radius = particle_radii
 
@@ -80,7 +67,6 @@ class PBFNet(BaseModel):
         self.kernel_size = kernel_size
         self.channel = channels
         self.strides = strides
-        self.particle_radii = particle_radii
         self.coordinate_mapping = coordinate_mapping
         self.interpolation = interpolation
         self.window = window
@@ -90,8 +76,6 @@ class PBFNet(BaseModel):
         self.centralize = centralize
         self.circular = circular
         self.equivar = equivar
-
-        self.transformation = transformation
 
         self.sample_pad = sample_pad
         self.sample_hyst = sample_hyst
@@ -113,10 +97,6 @@ class PBFNet(BaseModel):
         self.use_pre_adv = use_pre_adv
 
         self.use_bnds = use_bnds
-
-        # physics setup
-        self.timestep = timestep
-        self.grav = grav
 
         self.part_scale = part_scale
 
@@ -231,75 +211,6 @@ class PBFNet(BaseModel):
         pos2 = pos1 + dt * vel1 + (vel1 + vel2) / 2
         return pos2, vel2
 
-    def integrate_pos_vel(self, pos1, vel1, acc1=None):
-        """Apply gravity and integrate position and velocity"""
-        dt = self.timestep
-        vel2 = vel1 + dt * (acc1 if acc1 is not None else tf.constant(
-            [0, self.grav, 0]))
-        pos2 = pos1 + dt * vel2
-        return pos2, vel2
-
-    def compute_new_pos_vel(self, pos1, vel1, pos2, vel2, pos_correction):
-        """Apply the correction
-        pos1,vel1 are the positions and velocities from the previous timestep
-        pos2,vel2 are the positions after applying gravity and the integration step
-        """
-        dt = self.timestep
-        pos = pos2 + pos_correction
-        vel = (pos - pos1) / dt
-        return pos, vel
-
-    def transform(self, data, training=True, **kwargs):
-        pos, vel, acc, feats, box, bfeats = data
-
-        if "translate" in self.transformation:
-            translate = tf.constant(self.transformation["translate"],
-                                    tf.float32)
-            pos += translate
-            box += translate
-
-        if "scale" in self.transformation:
-            scale = tf.constant(self.transformation["scale"], tf.float32)
-            pos *= scale
-            box *= scale
-            vel *= scale
-            if acc is not None:
-                acc *= scale
-
-        if "grav_eqvar" in self.transformation:
-            grav_eqvar = tf.constant(self.transformation["grav_eqvar"],
-                                     tf.float32)
-            # WARNING: assuming same gravity for all particles for one sequence
-            self.R = align_vector(grav_eqvar, acc[0])
-            pos = tf.linalg.matmul(pos, self.R)
-            vel = tf.linalg.matmul(vel, self.R)
-            acc = tf.linalg.matmul(acc, self.R)
-            box = tf.linalg.matmul(box, self.R)
-            bfeats = tf.linalg.matmul(bfeats, self.R)
-
-        return [pos, vel, acc, feats, box, bfeats]
-
-    def inv_transform(self, prev, data, **kwargs):
-        pos, vel = prev
-
-        if "grav_eqvar" in self.transformation:
-            # WARNING: assuming same gravity for all particles for one sequence
-            R = tf.transpose(self.R)
-            pos = tf.linalg.matmul(pos, R)
-            vel = tf.linalg.matmul(vel, R)
-
-        if "scale" in self.transformation:
-            scale = tf.constant(self.transformation["scale"], tf.float32)
-            pos /= tf.maximum(scale, 1e-5)
-            vel /= tf.maximum(scale, 1e-5)
-
-        if "translate" in self.transformation:
-            translate = tf.constant(self.transformation["translate"],
-                                    tf.float32)
-            pos -= translate
-
-        return pos, vel
-
     def preprocess(self,
                    data,
                    training=True,
@@ -317,8 +228,8 @@ class PBFNet(BaseModel):
         else:
             pos, vel = self.integrate_pos_vel(_pos, _vel, acc)
             # TODO:
-            #vel2 *= 0
-            #if acc is not None:
+            # vel2 *= 0
+            # if acc is not None:
             #   acc *= 0
 
         #
@@ -331,7 +242,7 @@ class PBFNet(BaseModel):
             box >= tf.reduce_min(pos, axis=0) - filter_extent[-1],
             box <= tf.reduce_max(pos, axis=0) + filter_extent[-1]
         ],
-                             axis=(0, 2))
+            axis=(0, 2))
         box = box[fltr]
         bfeats = bfeats[fltr]
 
@@ -456,8 +367,8 @@ class PBFNet(BaseModel):
         if self.equivar:
             scale = self.scale_dens(out)
             rot = None
-            #rot = self.rot_dens(out)
-            #rot = rot / tf.linalg.norm(rot, axis=-1, keepdims=True)
+            # rot = self.rot_dens(out)
+            # rot = rot / tf.linalg.norm(rot, axis=-1, keepdims=True)
             out = compute_transformed_dx(self.all_pos,
                                          scale,
                                          rot,
@@ -507,11 +418,3 @@ class PBFNet(BaseModel):
                         pos_correction=self.pos_correction)
 
         return loss
-
-    def get_optimizer(self, cfg):
-        learning_rate_fn = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            cfg['lr_boundaries'], cfg['lr_values'])
-
-        optimizer = tf.optimizers.Adam(learning_rate=learning_rate_fn,
-                                       epsilon=1e-6)
-        return optimizer
