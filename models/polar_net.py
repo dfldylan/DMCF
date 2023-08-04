@@ -286,3 +286,6 @@ class PolarNet(BaseModel):
         dens = compute_density(box, radius=self.query_radii, win=get_window_func("poly6"))
         self.box_masses = self.rest_dens / dens
         self.box = box
+
+    def loss_keys(self):
+        return self.loss_fn.keys()
