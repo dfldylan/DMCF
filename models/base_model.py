@@ -182,6 +182,7 @@ class BaseModel(ABC, tf.keras.Model):
     def compute_XSPH_viscosity(self, fluid_nns, velocities, masses, densities, viscosity, radius,
                                win=get_window_func("poly6")):
         neighbors_index, neighbors_row_splits, neighbors_distance = fluid_nns
+        neighbors_distance = tf.stop_gradient(neighbors_distance)
         # Get neighbor positions, velocities, masses, and densities
         neighbors_velocities = tf.gather(velocities, neighbors_index)
         neighbors_masses = tf.gather(masses, neighbors_index)
@@ -198,7 +199,7 @@ class BaseModel(ABC, tf.keras.Model):
     def compute_vorticity_confinement(self, fluid_nns, velocities, positions, radius,
                                       win=get_window_func("cubic_grad")):
         timeStep = self.timestep
-        neighbors_index, neighbors_row_splits, neighbors_distance = fluid_nns
+        neighbors_index, neighbors_row_splits, _ = fluid_nns
         neighbors_counts = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
         # 对于每个粒子，计算与其邻居的位置和速度差
         velGap = tf.gather(velocities, neighbors_index) - tf.repeat(velocities, neighbors_counts, axis=0)

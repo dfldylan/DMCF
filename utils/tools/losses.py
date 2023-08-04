@@ -413,10 +413,18 @@ def compute_density_with_box(pos, masses, box=None, box_masses=None, radius=0.00
     radius = tf.convert_to_tensor(radius)
     fixed_radius_search = ml3d.layers.FixedRadiusSearch(return_distances=True)
     neighbors_index, neighbors_row_splits, dist = fixed_radius_search(all_pos, pos, radius)
-    dist = dist / radius ** 2
-    density = tf.gather(all_masses, neighbors_index) * win(dist)
-    density = ml3d.ops.reduce_subarrays_sum(density, neighbors_row_splits)
-    return density
+    neighbors = tf.RaggedTensor.from_row_splits(
+        values=tf.gather(all_pos, neighbors_index),
+        row_splits=neighbors_row_splits)
+    dist = neighbors - tf.expand_dims(pos, axis=1)
+    # dist = tf.expand_dims(out_pos, axis=0) - tf.expand_dims(out_pos, axis=1)
+    dist = tf.reduce_sum(dist ** 2, axis=-1) / radius ** 2
+    masses = tf.RaggedTensor.from_row_splits(values=tf.gather(all_masses, neighbors_index),
+                                             row_splits=neighbors_row_splits)
+    densities = masses * win(dist)
+    dens = tf.reduce_sum(densities, axis=-1)
+
+    return dens
 
 
 def density_loss_pbf(label, pos, pred_dens, density0, fac, eps=0.01, use_max=False, **kwargs):
