@@ -83,6 +83,12 @@ python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
                        --split train
 ```
 
+Run with 3D pipeline:
+```bash
+python run_pipeline.py --cfg_file configs/Liquid3d.yml \
+                       --split train
+```
+
 ## Test
 
 ```bash
