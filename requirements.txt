@@ -10,7 +10,6 @@ pyyaml
 addict
 tqdm
 scikit-learn
-tensorpack
 lapsolver
 python-prctl
 skia-python

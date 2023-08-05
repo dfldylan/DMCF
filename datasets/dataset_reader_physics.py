@@ -1,8 +1,7 @@
 import os
 import sys
-import numpy as np
+from datetime import datetime
 from glob import glob
-import tensorpack.dataflow as dataflow
 import tensorflow as tf
 import numpy as np
 import zstandard as zstd
@@ -13,6 +12,10 @@ import shutil
 
 msgpack_numpy.patch()
 import h5py
+import random
+from collections import deque
+from multiprocessing import Process, Manager
+from queue import Empty
 
 from datasets import column_gen, free_fall_gen
 
@@ -100,7 +103,7 @@ class DatasetGroup:
             if gen_type == "tank":
                 # TODO
                 raise NotImplementedError()
-                #f = tank.gen_data
+                # f = tank.gen_data
             elif gen_type == "column":
                 f = column_gen.gen_data
             elif gen_type == "free_fall":
@@ -124,16 +127,14 @@ class DatasetGroup:
                                      **dataset_cfg)
 
             if os.path.exists(os.path.join(path, "valid")):
-                self.valid = Dataset(dataset_path=os.path.join(path, "valid"),
-                                    **dataset_cfg)
+                self.valid = Dataset(dataset_path=os.path.join(path, "valid"), **dataset_cfg)
             else:
                 self.valid = Dataset(dataset_path=path, **dataset_cfg)
 
             if split != "valid":
                 if os.path.exists(os.path.join(path, "test")):
                     self.test = Dataset(dataset_path=os.path.join(
-                        path, "test"),
-                                        **dataset_cfg)
+                        path, "test"), **dataset_cfg)
                 else:
                     try:
                         self.test = Dataset(dataset_path=path, **dataset_cfg)
@@ -142,7 +143,6 @@ class DatasetGroup:
 
                 if split == "test":
                     self.valid = self.test
-
 
     def gen_data(self, func, regen=False, **cfg):
         fldr = dict_hash(cfg)
@@ -209,12 +209,27 @@ class Dataset:
                                    raw=False)
 
 
-class PhysicsSimDataFlow(dataflow.RNGDataFlow):
+def get_rng(obj=None):
+    """
+    Get a good RNG seeded with time, pid and the object.
+
+    Args:
+        obj: some object to use to generate random seed.
+    Returns:
+        np.random.RandomState: the RNG.
+    """
+    seed = (id(obj) + os.getpid() +
+            int(datetime.now().strftime("%Y%m%d%H%M%S%f"))) % 4294967295
+    return np.random.RandomState(seed)
+
+
+class PhysicsSimDataFlow:
     """Data flow for msgpacks generated from SplishSplash simulations.
 
     Only returns data for fluids for now (position, velocity, mass, viscosity)
 
     """
+
     def __init__(self,
                  dataset,
                  shuffle=False,
@@ -240,6 +255,7 @@ class PhysicsSimDataFlow(dataflow.RNGDataFlow):
         self.grav_eqvar = grav_eqvar
         self.scale = scale
         self.sample_cnt = sample_cnt
+        self.rng = get_rng(self)
 
     def transform(self, data):
         for mode, config in self.augment.items():
@@ -316,13 +332,7 @@ class PhysicsSimDataFlow(dataflow.RNGDataFlow):
                 sample = {}
                 sample['pre'] = np.random.randint(self.pre_frames + 1)
 
-                for k in [
-                        'pos',
-                        'vel',
-                        'grav',
-                        'm',
-                        'viscosity'  #, 'box', 'box_normals'
-                ]:
+                for k in ['pos', 'vel', 'grav', 'm', 'viscosity']:
                     if k in data[data_i]:
                         sample[k] = np.stack([
                             data[data_i + i * self.stride].get(
@@ -373,8 +383,8 @@ def get_normalization_stats(files, dt):
 
         frame_cnt = np.max([d["frame_id"] for d in data] + [frame_cnt])
         p = np.stack([d["pos"] for d in data], axis=0)
-        v = (p[1:] - p[:-1])  #/dt
-        a = (v[1:] - v[:-1])  #/dt
+        v = (p[1:] - p[:-1])  # /dt
+        a = (v[1:] - v[:-1])  # /dt
 
         v = np.reshape(v[:-1], (-1, 3))
         a = np.reshape(a, (-1, 3))
@@ -388,12 +398,12 @@ def get_normalization_stats(files, dt):
 
     vel_mean = np.sum(vel_means * cnts, axis=0) / np.sum(cnts)
     vel_var = np.sum(
-        (vel_vars + (vel_means - vel_mean)**2) * cnts, axis=0) / np.sum(cnts)
+        (vel_vars + (vel_means - vel_mean) ** 2) * cnts, axis=0) / np.sum(cnts)
     vel_std = np.sqrt(vel_var)
 
     acc_mean = np.sum(acc_means * cnts, axis=0) / np.sum(cnts)
     acc_var = np.sum(
-        (acc_vars + (acc_means - acc_mean)**2) * cnts, axis=0) / np.sum(cnts)
+        (acc_vars + (acc_means - acc_mean) ** 2) * cnts, axis=0) / np.sum(cnts)
     acc_std = np.sqrt(acc_var)
 
     return {
@@ -430,20 +440,15 @@ def get_rollout(dataset,
             random_off = 0
             if random_start > 1:
                 random_off = np.random.randint(random_start * stride)
-        if data['frame_id'][0] < time_start * stride + random_off or data[
-                'frame_id'][0] % stride != 0 or (
-                    time_end is not None
-                    and data['frame_id'][0] >= time_end * stride + random_off):
+        if data['frame_id'][0] < time_start * stride + random_off or data['frame_id'][0] % stride != 0 or (
+                time_end is not None and data['frame_id'][0] >= time_end * stride + random_off):
             continue
         rollout[-1].append(data)
 
     out = []
     for i in range(len(rollout)):
         merge = {}
-        for k in [
-                'pos', 'vel', 'grav', 'm', 'viscosity', 'frame_id', 'scene_id',
-                'box', 'box_normals'
-        ]:
+        for k in ['pos', 'vel', 'grav', 'm', 'viscosity', 'frame_id', 'scene_id', 'box', 'box_normals']:
             l = [data[k] for data in rollout[i]]
             if len(l) == len(rollout[i]) and len(l) > 0:
                 merge[k] = np.concatenate(l, 0)
@@ -468,55 +473,131 @@ def to_tensor(x):
     return t
 
 
-def get_dataloader(dataset,
-                   batch_size=1,
-                   window=1,
-                   repeat=False,
-                   shuffle_buffer=None,
-                   num_workers=1,
-                   cache_data=False,
-                   is2d=False,
-                   pre_frames=0,
-                   stride=1,
-                   translate=None,
-                   scale=None,
-                   augment={},
-                   **kwargs):
+class ShuffleIterator:
+    def __init__(self, iterator, buffer_size):
+        self.iterator = iterator
+        self.buffer_size = buffer_size
+        self.buffer = deque(maxlen=buffer_size)
+        self.gen = self._generator()
 
+    def _generator(self):
+        for item in self.iterator:
+            if len(self.buffer) < self.buffer_size:
+                self.buffer.append(item)
+            else:
+                yield self._pop_and_append(item)
+        while len(self.buffer) > 0:
+            yield self.buffer.popleft()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.gen)
+
+    def _pop_and_append(self, item):
+        replace_index = random.randint(0, self.buffer_size - 1)
+        replace_item = self.buffer[replace_index]
+        self.buffer[replace_index] = item
+        return replace_item
+
+
+def repeat_iter(df):
+    while True:
+        for item in df:
+            yield item
+
+
+def process_iterator(iterator, process_function):
+    for item in iterator:
+        yield process_function(item)
+
+
+def batch_data_generator(data_iter, batch_size):
+    batch = {}
+    for item in data_iter:
+        for key, value in item.items():
+            if key not in batch:
+                batch[key] = []
+            batch[key].append(value)
+        if len(batch[list(batch.keys())[0]]) == batch_size:
+            yield batch
+            batch = {key: [] for key in batch.keys()}
+    if batch[list(batch.keys())[0]]:  # check if there are remaining items in the batch
+        yield batch
+
+
+def worker_func(queue_out, args):
+    data_flow = process_data(args)  # This is a data processing function
+    while True:
+        try:
+            queue_out.put(next(data_flow))
+        except Exception as e:
+            print(f"Error in worker process: {e}")
+            break  # Or you can choose to re-raise the exception, depending on how you want to handle the exception
+
+
+def parallel_iterator(num_workers, args):
+    m = Manager()
+    queue_out = m.Queue(maxsize=num_workers * 2)  # 设置queue的最大大小为100
+    # 启动 worker 进程
+    workers = []
+    for _ in range(num_workers):
+        worker = Process(target=worker_func, args=(queue_out, args))  # 注意这里的逗号，它用来创建单元素的元组
+        worker.start()
+        workers.append(worker)
+    # 从 queue_out 获取处理后的数据
+    while True:
+        try:
+            yield queue_out.get(timeout=1)
+        except Empty:
+            if all(not worker.is_alive() for worker in workers):
+                break
+    # 确保所有进程都已经结束
+    for worker in workers:
+        worker.join()
+
+
+def process_data(args):
+    data_flow = PhysicsSimDataFlow(dataset=args['dataset'],
+                                   shuffle=True if args['shuffle_buffer'] else False,
+                                   window=args['window'],
+                                   is2d=args['is2d'],
+                                   pre_frames=args['pre_frames'],
+                                   stride=args['stride'],
+                                   augment=args['augment'],
+                                   translate=args['translate'],
+                                   scale=args['scale'],
+                                   **args['kwargs'])
+    if args['repeat']:
+        data_flow = repeat_iter(data_flow)
+    if args['shuffle_buffer']:
+        data_flow = ShuffleIterator(data_flow, args['shuffle_buffer'])
+    # data_flow = process_iterator(data_flow, to_tensor)  # Assume to_tensor is your processing function
+    return data_flow
+
+
+def get_dataloader(dataset, batch_size=1, window=1, repeat=False, shuffle_buffer=None, num_workers=1, cache_data=False,
+                   is2d=False, pre_frames=0, stride=1, translate=None, scale=None, augment={}, **kwargs):
     # caching makes only sense if the data is finite
     if cache_data:
         assert repeat == False
         assert not augment
         assert num_workers == 1
 
-    df = PhysicsSimDataFlow(dataset=dataset,
-                            shuffle=True if shuffle_buffer else False,
-                            window=window,
-                            is2d=is2d,
-                            pre_frames=pre_frames,
-                            stride=stride,
-                            augment=augment,
-                            translate=translate,
-                            scale=scale,
-                            **kwargs)
-    if repeat:
-        df = dataflow.RepeatedData(df, -1)
-
-    if shuffle_buffer:
-        df = dataflow.LocallyShuffleData(df, shuffle_buffer)
-
-    df = dataflow.MapData(df, to_tensor)
+    args = {'dataset': dataset, 'batch_size': batch_size, 'window': window, 'repeat': repeat,
+            'shuffle_buffer': shuffle_buffer, 'num_workers': num_workers, 'cache_data': cache_data,
+            'is2d': is2d, 'pre_frames': pre_frames, 'stride': stride, 'translate': translate,
+            'scale': scale, 'augment': augment, 'kwargs': kwargs}
 
     if num_workers > 1:
-        df = dataflow.MultiProcessRunnerZMQ(df, num_proc=num_workers)
-
-    df = dataflow.BatchData(df, batch_size=batch_size, use_list=True)
-
+        data_flow = parallel_iterator(num_workers, args)
+    else:
+        data_flow = process_data(args)
+    data_flow = batch_data_generator(data_flow, batch_size=batch_size)
     if cache_data:
-        df = dataflow.CacheData(df)
-
-    df.reset_state()
-    return iter(df)
+        data_flow = list(data_flow)
+    return data_flow
 
 
 def write_results(path, name, data):
