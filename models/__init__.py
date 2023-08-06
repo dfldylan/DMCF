@@ -4,5 +4,6 @@ from .sym_net import SymNet
 from .cconv import CConv
 from .pointnet import PointNet
 from .polar_net import PolarNet
+from .pbf_real import PBFReal
 
-__all__ = ['BaseModel', 'SymNet', 'HRNet', 'CConv', 'PointNet', 'PolarNet']
+__all__ = ['BaseModel', 'SymNet', 'HRNet', 'CConv', 'PointNet', 'PolarNet', 'PBFReal']

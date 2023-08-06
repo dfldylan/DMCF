@@ -16,7 +16,7 @@ def combine_nns(fluid_nns, solid_nns):
     solid_segment_ids = tf.ragged.row_splits_to_segment_ids(solid_row_splits)
 
     # 合并neighbors_index，neighbors_distance，以及segment_ids
-    combined_index = tf.concat([fluid_index, solid_index], axis=0)
+    combined_index = tf.concat([fluid_index, solid_index + (tf.shape(fluid_row_splits)[0] - 1)], axis=0)
     combined_distance = tf.concat([fluid_distance, solid_distance], axis=0)
     combined_ids = tf.concat([fluid_segment_ids, solid_segment_ids], axis=0)
 

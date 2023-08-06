@@ -170,17 +170,14 @@ class BasePipeline(ABC):
 
         epoch = 0
         if ckpt_path is not None:
-            self.ckpt.restore(
-                ckpt_path).expect_partial()  #assert_existing_objects_matched()
+            self.ckpt.restore(ckpt_path).expect_partial()
             log.info("Restored from {}".format(ckpt_path))
         else:
             self.ckpt.restore(self.manager.latest_checkpoint).expect_partial()
 
             if self.manager.latest_checkpoint:
-                log.info("Restored from {}".format(
-                    self.manager.latest_checkpoint))
-                epoch = int(
-                    re.findall(r'\d+', self.manager.latest_checkpoint)[-1]) - 1
+                log.info("Restored from {}".format(self.manager.latest_checkpoint))
+                epoch = int(re.findall(r'\d+', self.manager.latest_checkpoint)[-1]) - 1
                 epoch = epoch * self.cfg.save_ckpt_freq + 1
             else:
                 log.info("Initializing from scratch.")

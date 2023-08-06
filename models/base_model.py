@@ -180,22 +180,22 @@ class BaseModel(ABC, tf.keras.Model):
         vel = (pos - pos1) / dt
         return pos, vel
 
-    def compute_XSPH_viscosity(self, fluid_nns, velocities, masses, densities, viscosity, radius,
+    def compute_XSPH_viscosity(self, fluid_nns, pos, velocities, fluid_mass, densities, viscosity, radius,
                                win=get_window_func("poly6")):
-        neighbors_index, neighbors_row_splits, neighbors_distance = fluid_nns
-        neighbors_distance = tf.stop_gradient(neighbors_distance)
+        neighbors_index, neighbors_row_splits, _ = fluid_nns
         # Get neighbor positions, velocities, masses, and densities
         neighbors_velocities = tf.gather(velocities, neighbors_index)
-        neighbors_masses = tf.gather(masses, neighbors_index)
+        # neighbors_masses = tf.gather(masses, neighbors_index)
         neighbors_densities = tf.gather(densities, neighbors_index)
         # Compute tmp values for all particles and neighbors
         neighbors_counts = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
         tmp = tf.repeat(velocities, neighbors_counts, axis=0) - neighbors_velocities
-        dist = neighbors_distance / radius ** 2
-        tmp *= tf.expand_dims(win(dist) * (neighbors_masses / neighbors_densities), axis=-1)
+        dist = tf.repeat(pos, neighbors_counts, axis=0) - tf.gather(pos, neighbors_index)
+        dist = tf.reduce_sum(tf.square(dist), axis=-1) / radius ** 2
+        tmp *= tf.expand_dims(win(dist) * fluid_mass / neighbors_densities, axis=-1)
         # Compute sum_value for all particles
         delta_velocity = -reduce_subarrays_sum_multi(tmp, neighbors_row_splits) * viscosity
-        return delta_velocity + velocities
+        return velocities + delta_velocity
 
     def _gradient(self, vec, radius, win=get_window_func("cubic_grad")):
         vec_squared_sum = tf.reduce_sum(vec ** 2, axis=-1, keepdims=True)
@@ -266,3 +266,58 @@ class BaseModel(ABC, tf.keras.Model):
         # Correct fluid particle's position and velocity
         vel = tf.tensor_scatter_nd_update(vel, mask2, newVelocity[:, 0])
         return pos, vel
+
+    def calculate_boundary_mass(self, box, query_radii, rest_dens, win=get_window_func("cubic")):
+        dens = compute_density(box, radius=query_radii, win=win)
+        box_masses = rest_dens / dens
+        return box_masses
+
+    def compute_density_with_mass(self, mass, neighbors, density0, radius, win=get_window_func("cubic")):
+        neighbors_index, neighbors_row_splits, neighbors_distance = neighbors
+        density = tf.gather(mass, neighbors_index) * win(neighbors_distance / radius ** 2)
+        density = reduce_subarrays_sum_multi(density, neighbors_row_splits)
+        density += mass[:tf.shape(density)[0]] * win(0.0)
+        density_err = tf.clip_by_value(density - density0, 0, tf.float32.max)
+        return density, density_err
+
+    def compute_lagrange_multiplier(self, position, mass, neighbors, density_err, density0, radius, eps=1.0e-6):
+        constraint = density_err / density0
+        lambda_val = tf.zeros_like(constraint)
+        mask = tf.math.abs(constraint) > eps
+        neighbors = neighbors_mask(neighbors, mask)
+        neighbors_index, neighbors_row_splits, _ = neighbors
+        neighbors_counts = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
+        neighbor_positions = tf.gather(position, neighbors_index)
+        position_diffs = tf.repeat(tf.boolean_mask(position[:tf.shape(constraint)[0]], mask), neighbors_counts,
+                                   axis=0) - neighbor_positions
+        neighbor_masses = tf.gather(mass, neighbors_index)
+        grad_cj = neighbor_masses[:, None] / density0 * self._gradient(position_diffs, radius)
+        grad_ci = reduce_subarrays_sum_multi(grad_cj, neighbors_row_splits)
+        sum_grad_cj = reduce_subarrays_sum_multi(tf.reduce_sum(tf.square(grad_cj), axis=-1),
+                                                 neighbors_row_splits) + tf.reduce_sum(tf.square(grad_ci), axis=-1)
+        lambda_val_masked = -tf.boolean_mask(constraint, mask) / (sum_grad_cj + eps)
+        lambda_val = tf.tensor_scatter_nd_update(lambda_val, tf.where(mask), lambda_val_masked)
+        return lambda_val
+
+    def solve_density_constraint(self, position, mass, neighbors, lambda_vals, density0, radius):
+        neighbors_index, neighbors_row_splits, _ = neighbors
+        # Compute grad_cj for each neighbor.
+        neighbors_counts = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
+        neighbor_positions = tf.gather(position, neighbors_index)
+        position_repeat = tf.repeat(position[:tf.shape(lambda_vals)[0]], neighbors_counts, axis=0)
+        position_diffs = position_repeat - neighbor_positions
+        # shape: [numFluidParticle, num_neighbors, 3]
+        neighbor_masses = tf.gather(mass, neighbors_index)
+        grad_cj = neighbor_masses[:, None] / density0 * self._gradient(position_diffs, radius)
+        # shape: [numFluidParticle, num_neighbors, 3]
+        # Compute lambda*grad_cj for each neighbor.
+        lambda_i = tf.repeat(lambda_vals, neighbors_counts, axis=0)  # shape: [numFluidParticle]
+        lambda_j = tf.gather(tf.pad(lambda_vals, paddings=[[0, tf.shape(position)[0] - tf.shape(lambda_vals)[0]]]),
+                             neighbors_index)
+        # shape: [total_num_neighbors]
+        # shape: [total_num_neighbors]
+        lambda_ij = lambda_i + lambda_j
+        lambda_grad_cj = lambda_ij[:, None] * grad_cj  # shape: [numFluidParticle, num_neighbors, 3]
+        # Sum up lambda*grad_cj for each particle.
+        deltaPos = reduce_subarrays_sum_multi(lambda_grad_cj, neighbors_row_splits)  # shape: [numFluidParticle, 3]
+        return deltaPos
