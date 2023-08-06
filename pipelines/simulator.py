@@ -192,7 +192,7 @@ class Simulator(BasePipeline):
             target_pos, target_vel = data["pos"], data["vel"]
 
             loss_seq = []
-            for t in range(1, target_pos.shape[0]):  # for every particle
+            for t in range(1, min(target_pos.shape[0],len(results[i]))):  # for every particle
                 # eval for complete sequence
                 pos, vel = results[i][t][:2]
                 loss = {}
