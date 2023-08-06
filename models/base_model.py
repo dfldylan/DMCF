@@ -196,8 +196,14 @@ class BaseModel(ABC, tf.keras.Model):
         delta_velocity = -reduce_subarrays_sum_multi(tmp, neighbors_row_splits) * viscosity
         return delta_velocity + velocities
 
+    def _gradient(self, vec, radius, win=get_window_func("cubic_grad")):
+        vec_squared_sum = tf.reduce_sum(vec ** 2, axis=-1, keepdims=True)
+        gradients = vec / (tf.sqrt(vec_squared_sum) * radius) * win(vec_squared_sum / radius ** 2)
+        return gradients
+
     def compute_vorticity_confinement(self, fluid_nns, velocities, positions, radius,
                                       win=get_window_func("cubic_grad")):
+
         timeStep = self.timestep
         neighbors_index, neighbors_row_splits, _ = fluid_nns
         neighbors_counts = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
@@ -205,18 +211,15 @@ class BaseModel(ABC, tf.keras.Model):
         velGap = tf.gather(velocities, neighbors_index) - tf.repeat(velocities, neighbors_counts, axis=0)
         posGap = tf.repeat(positions, neighbors_counts, axis=0) - tf.gather(positions, neighbors_index)
         # 计算渐变和交叉积
-        gradients = posGap * win(tf.reduce_sum(posGap ** 2, axis=-1) / radius ** 2)[:, tf.newaxis]
+        gradients = self._gradient(posGap, radius, win)
         curl = reduce_subarrays_sum_multi(tf.linalg.cross(velGap, gradients), neighbors_row_splits)
         # 分别向x,y,z方向偏移，再计算渐变和交叉积
         posGap_shifted_x = posGap + [0.01, 0, 0]
         posGap_shifted_y = posGap + [0, 0.01, 0]
         posGap_shifted_z = posGap + [0, 0, 0.01]
-        gradients_shifted_x = posGap_shifted_x * win(tf.reduce_sum(posGap_shifted_x ** 2, axis=-1) / radius ** 2)[:,
-                                                 tf.newaxis]
-        gradients_shifted_y = posGap_shifted_y * win(tf.reduce_sum(posGap_shifted_y ** 2, axis=-1) / radius ** 2)[:,
-                                                 tf.newaxis]
-        gradients_shifted_z = posGap_shifted_z * win(tf.reduce_sum(posGap_shifted_z ** 2, axis=-1) / radius ** 2)[:,
-                                                 tf.newaxis]
+        gradients_shifted_x = self._gradient(posGap_shifted_x, radius, win)
+        gradients_shifted_y = self._gradient(posGap_shifted_y, radius, win)
+        gradients_shifted_z = self._gradient(posGap_shifted_z, radius, win)
         curl_shifted_x = reduce_subarrays_sum_multi(tf.linalg.cross(velGap, gradients_shifted_x), neighbors_row_splits)
         curl_shifted_y = reduce_subarrays_sum_multi(tf.linalg.cross(velGap, gradients_shifted_y), neighbors_row_splits)
         curl_shifted_z = reduce_subarrays_sum_multi(tf.linalg.cross(velGap, gradients_shifted_z), neighbors_row_splits)
@@ -255,8 +258,8 @@ class BaseModel(ABC, tf.keras.Model):
         relativeVelT = mask2_vel - relativeVelN
         # Apply a restitution coefficient to the normal component of the relative velocity and calculate friction for the tangential component
         relativeVelN *= -restitutionCoefficient
-        frictionScale = tf.clip_by_value(1.0 - _frictionCoeffient * tf.norm(relativeVelN) / tf.norm(relativeVelT), 0.0,
-                                         1.0)
+        frictionScale = tf.clip_by_value(
+            1.0 - _frictionCoeffient * tf.norm(relativeVelN) / tf.norm(relativeVelT + 1e-5), 0.0, 1.0)
         relativeVelT *= frictionScale
         newVelocity = relativeVelN + relativeVelT
         # Correct fluid particle's position and velocity
