@@ -59,6 +59,7 @@ class PBFNet(BaseModel):
                          particle_radii=particle_radii,
                          transformation=transformation,
                          grav=grav,
+                         window_dens=window_dens,
                          **kwargs)
         if dens_radius is None:
             dens_radius = particle_radii
@@ -85,7 +86,6 @@ class PBFNet(BaseModel):
         self.dens_feats = dens_feats
         self.pres_feats = pres_feats
         self.out_scale = tf.constant(out_scale)
-        self.window_dens = window_dens
         self.dens_norm = dens_norm
         self.rest_dens = rest_dens
         self.stiffness = stiffness

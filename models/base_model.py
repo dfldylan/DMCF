@@ -204,7 +204,7 @@ class BaseModel(ABC, tf.keras.Model):
         gradients = vec / (tf.sqrt(vec_squared_sum) * radius) * win(vec_squared_sum / radius ** 2)
         return gradients
 
-    def compute_vorticity_confinement(self, fluid_nns, velocities, positions, radius,
+    def compute_vorticity_confinement(self, fluid_nns, velocities, positions, radius, fac=0.00001,
                                       win=get_window_func("cubic_grad")):
 
         timeStep = self.timestep
@@ -232,10 +232,23 @@ class BaseModel(ABC, tf.keras.Model):
              tf.norm(curl_shifted_y, axis=-1, keepdims=True) - curl_len,
              tf.norm(curl_shifted_z, axis=-1, keepdims=True) - curl_len]
         N = tf.concat(N, axis=-1)
-        N = N / (tf.norm(N, axis=-1, keepdims=True) + 1e-5)  # normalize N
-        force = 0.000010 * tf.linalg.cross(N, curl)
+        N_norm = tf.norm(N, axis=-1, keepdims=True)
+        # 创建一个掩码，用于识别非零范数
+        mask = tf.squeeze(N_norm != 0, axis=-1)
+        # 使用掩码来选择元素
+        N_filtered = tf.boolean_mask(N, mask)
+        N_norm_filtered = tf.boolean_mask(N_norm, mask)
+        curl_filtered = tf.boolean_mask(curl, mask)
+        # 对滤波后的N执行归一化
+        N_normalized = N_filtered / N_norm_filtered
+        # 计算力和速度变化
+        force = fac * tf.linalg.cross(N_normalized, curl_filtered)
         delta_velocity = timeStep * force
-        return velocities + delta_velocity
+        # 获取满足掩码条件的索引
+        indices = tf.where(mask)
+        # 将delta_velocity添加到原始速度的对应位置
+        final_velocities = tf.tensor_scatter_nd_add(velocities, indices, delta_velocity)
+        return final_velocities
 
     def boundary_correction(self, pos, vel, tree, box, box_normals):
         restitutionCoefficient = 0.25

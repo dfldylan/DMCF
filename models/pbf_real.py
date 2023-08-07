@@ -31,12 +31,15 @@ class PBFReal(BaseModel):
                  density0=1000,
                  solver_iterations=3,
                  viscosity=0.02,
+                 vorticity_fac=0.00001,
+                 window_dens='cubic',
                  **kwargs):
         super().__init__(name=name,
                          timestep=timestep,
                          particle_radii=particle_radii,
                          transformation=transformation,
                          grav=grav,
+                         window_dens=window_dens,
                          **kwargs)
         self.query_radii = particle_radii * 4 if query_radii is None else query_radii
         self.m_neighborSearch = o3dml.layers.FixedRadiusSearch(ignore_query_point=True, return_distances=True)
@@ -45,7 +48,8 @@ class PBFReal(BaseModel):
         volume = diameter * diameter * diameter * 0.8
         self.fluid_mass = volume * self.m_density0
         self.m_maxIter = solver_iterations
-        self.m_viscosity = viscosity
+        self.m_viscosity = tf.Variable(viscosity, trainable=True, name="viscosity")
+        self.vorticity_fac = tf.Variable(vorticity_fac, trainable=False, name="vorticity_fac")
 
         self.loss_fn = {}
         for l, v in loss.items():
