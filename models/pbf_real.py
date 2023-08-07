@@ -145,13 +145,18 @@ class PBFReal(BaseModel):
         pred = results[0]
         target = data[1]
 
+        num_fluid_neighbors = tf.cast(
+            self.fluid_nns.neighbors_row_splits[1:] - self.fluid_nns.neighbors_row_splits[:-1], tf.float32)
+        num_solid_neighbors = tf.cast(
+            self.solid_nns.neighbors_row_splits[1:] - self.solid_nns.neighbors_row_splits[:-1], tf.float32)
+
         for n, l in self.loss_fn.items():
             loss[n] = l(target,
                         pred,
-                        num_fluid_neighbors=self.num_fluid_neighbors,
+                        num_fluid_neighbors=num_fluid_neighbors,
+                        num_solid_neighbors=num_solid_neighbors,
                         input=data[0],
                         target_prev=data[2],
-                        pre_steps=data[3],
-                        pos_correction=self.pos_correction)
+                        pre_steps=data[3])
 
         return loss
