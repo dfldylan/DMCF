@@ -287,8 +287,12 @@ class BaseModel(ABC, tf.keras.Model):
         box_masses = rest_dens / dens
         return box_masses
 
-    def compute_density_with_mass(self, mass, neighbors, density0, radius, win=get_window_func("cubic")):
-        neighbors_index, neighbors_row_splits, neighbors_distance = neighbors
+    def compute_density_with_mass(self, pos, mass, neighbors, density0, radius, win=get_window_func("cubic")):
+        neighbors_index, neighbors_row_splits, _ = neighbors
+        neighbors_count = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
+        pos_repeat = tf.repeat(pos[:tf.shape(neighbors_count)[0]], neighbors_count, axis=0)
+        pos_gather = tf.gather(pos, neighbors_index)
+        neighbors_distance = tf.reduce_sum(tf.square(pos_repeat - pos_gather), axis=-1)
         density = tf.gather(mass, neighbors_index) * win(neighbors_distance / radius ** 2)
         density = reduce_subarrays_sum_multi(density, neighbors_row_splits)
         density += mass[:tf.shape(density)[0]] * win(0.0)
