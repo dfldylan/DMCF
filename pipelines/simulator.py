@@ -380,19 +380,20 @@ class Simulator(BasePipeline):
                             data["box"][bi][0], data["box_normals"][bi][0]
                         ]
                         target = data["pos"][bi]
+                        target_vel = data["vel"][bi]
                         pos, vel = model(inputs, training=True)
                         l = []
                         l.append(
                             model.loss([pos, vel], [
                                 inputs, target[t + pre + 1], target[t + pre],
-                                pre
+                                pre, target_vel[t + pre + 1], target_vel[t + pre]
                             ]))
                         for _ in range(1, it):
                             pos, vel = model(inputs, vel, training=True)
                             l.append(
                                 model.loss([pos, vel], [
                                     inputs, target[t + pre + 1],
-                                    target[t + pre], pre
+                                    target[t + pre], pre, target_vel[t + pre + 1], target_vel[t + pre]
                                 ]))
 
                         l = merge_dicts(l, lambda x, y: x + y / len(l))

@@ -29,6 +29,7 @@ model:
       #pre_scale: 0.04
     dense_pbf:
       typ: dense_pbf
+      fac: 128.0
 
   dens_feats: False
   pres_feats: False
