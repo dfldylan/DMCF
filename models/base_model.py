@@ -44,6 +44,7 @@ class BaseModel(ABC, tf.keras.Model):
                  particle_radii,
                  transformation,
                  grav,
+                 window_dens=None,
                  **kwargs):
         super().__init__(name=name)
         # physics setup
@@ -51,6 +52,7 @@ class BaseModel(ABC, tf.keras.Model):
         self.timestep = timestep
         self.particle_radii = particle_radii
         self.transformation = transformation
+        self.window_dens = window_dens
 
         self.cfg = Config(kwargs)
 
