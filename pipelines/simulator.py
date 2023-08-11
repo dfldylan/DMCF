@@ -21,7 +21,7 @@ from datasets.dataset_reader_physics import get_dataloader, get_rollout, write_r
 
 from utils.tools.losses import density_loss, get_window_func, compute_density, get_window_func, emd_loss
 from utils.evaluation_helper import compare_dist, chamfer_distance, distance, merge_dicts
-
+from utils.hdf5_to_npz import write_npz
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -155,6 +155,8 @@ class Simulator(BasePipeline):
 
             write_results(os.path.join(out_dir, '%04d.hdf5' % epoch),
                           self.model.name, output)
+
+            write_npz(out_dir, data={'pred': pos, 'gt': data['pos'], 'bnd': data['box'][0]})
 
             for f in glob(os.path.join(out_dir, '*.hdf5')):
                 if f != os.path.join(out_dir, '%04d.hdf5' % epoch):
