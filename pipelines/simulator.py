@@ -38,6 +38,7 @@ class Simulator(BasePipeline):
     """
     Pipeline for trainable simulator. 
     """
+
     def __init__(self,
                  model,
                  dataset=None,
@@ -54,7 +55,7 @@ class Simulator(BasePipeline):
                          split=split,
                          **kwargs)
 
-    @tf.function(experimental_relax_shapes=True)
+    # @tf.function(experimental_relax_shapes=True)
     def run_inference(self, inputs):
         """
         Run inference on a given data.
@@ -196,7 +197,7 @@ class Simulator(BasePipeline):
             target_pos, target_vel = data["pos"], data["vel"]
 
             loss_seq = []
-            for t in range(1, min(target_pos.shape[0],len(results[i]))):  # for every particle
+            for t in range(1, min(target_pos.shape[0], len(results[i]))):  # for every particle
                 # eval for complete sequence
                 pos, vel = results[i][t][:2]
                 loss = {}
@@ -318,7 +319,7 @@ class Simulator(BasePipeline):
 
         log.info("Writing summary in {}.".format(self.tensorboard_dir))
 
-        @tf.function(experimental_relax_shapes=True)
+        # @tf.function(experimental_relax_shapes=True)
         def train(data, time_w, it=0, max_err=None, max_dens_err=None):
             loss = []
 
@@ -368,7 +369,7 @@ class Simulator(BasePipeline):
             with tf.GradientTape() as tape:
                 loss = tf.TensorArray(tf.float32,
                                       size=tf.shape(time_w)[0] *
-                                      len(data['pos']),
+                                           len(data['pos']),
                                       dynamic_size=True,
                                       clear_after_read=False)
                 inputs = []
@@ -406,12 +407,12 @@ class Simulator(BasePipeline):
                         lambda p, v, pr, t, l: t < tf.shape(time_w)[0], body,
                         [in_pos[bi], in_vel[bi], pre[bi], tf.constant(0), loss])[-1]
                 loss_sum = tf.reduce_sum(loss.stack(), axis=0) / (
-                    tf.reduce_sum(time_w) * len(data['pos']))
+                        tf.reduce_sum(time_w) * len(data['pos']))
 
                 w_decay = cfg.get("w_decay", 0)
                 if w_decay > 0:
                     loss_sum += w_decay * tf.reduce_sum(
-                        [tf.reduce_sum(w**2) for w in model.trainable_weights])
+                        [tf.reduce_sum(w ** 2) for w in model.trainable_weights])
 
                 grads = tape.gradient(loss_sum, model.trainable_weights)
 
@@ -468,7 +469,7 @@ class Simulator(BasePipeline):
                     d.shape[0] - 1 - p
                     for d, p in zip(data['pos'], data['pre'])
                 ])),
-                                 dtype=np.float32)
+                    dtype=np.float32)
                 if window_it > 0:
                     a = (step - cfg.window_bnds[window_it - 1] +
                          1) / cfg.time_blend
