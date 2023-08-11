@@ -15,7 +15,7 @@ from .base_model import BaseModel
 class PBFReal(BaseModel):
     def __init__(self,
                  name="PBFReal",
-                 particle_radii=0.025,
+                 particle_radii=[0.025],
                  grav=-9.81,
                  transformation={},
                  loss={
@@ -41,10 +41,10 @@ class PBFReal(BaseModel):
                          grav=grav,
                          window_dens=window_dens,
                          **kwargs)
-        self.query_radii = particle_radii * 4 if query_radii is None else query_radii
+        self.query_radii = particle_radii[0] * 4 if query_radii is None else query_radii
         self.m_neighborSearch = o3dml.layers.FixedRadiusSearch(ignore_query_point=True, return_distances=True)
         self.m_density0 = density0
-        diameter = 2.0 * particle_radii
+        diameter = 2.0 * particle_radii[0]
         volume = diameter * diameter * diameter * 0.8
         self.fluid_mass = volume * self.m_density0
         self.m_maxIter = solver_iterations
@@ -55,7 +55,7 @@ class PBFReal(BaseModel):
         for l, v in loss.items():
             if v["typ"] == "dense":
                 if not "radius" in v:
-                    v["radius"] = particle_radii
+                    v["radius"] = self.query_radii
             self.loss_fn[l] = get_loss(**v)
 
     def _integrate_pos_vel(self, pos1, vel1, acc1=None):
