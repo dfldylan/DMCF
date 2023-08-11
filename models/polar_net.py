@@ -291,7 +291,7 @@ class PolarNet(PBFReal):
         self.densities, _ = self.compute_density_with_mass(group_position, group_masses, group_neighbors,
                                                            self.m_density0, self.query_radii)
 
-        pos, vel = super(PolarNet, self).postprocess(prev, data, training, vel_corr, **kwargs)
+        # pos, vel = super(PolarNet, self).postprocess(prev, data, training, vel_corr, **kwargs)
         return [pos, vel]
 
     def loss(self, results, data):
