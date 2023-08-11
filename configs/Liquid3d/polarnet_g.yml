@@ -13,7 +13,6 @@ model:
   grav: -9.81
   out_scale: [0.0078125, 0.0078125, 0.0078125] 
   rest_dens: 1000.0
-  use_acc: False
   channels: 16
 
   #transformation:
