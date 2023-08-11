@@ -404,31 +404,6 @@ def density_loss(gt,
     return tf.reduce_mean(err)
 
 
-def compute_density_with_box(pos, masses, box=None, box_masses=None, radius=0.005, win=get_window_func("poly6")):
-    if box is None and box_masses is None:
-        all_pos, all_masses = pos, masses
-    elif box is not None and box_masses is not None:
-        all_pos = tf.concat([pos, box], axis=0)
-        all_masses = tf.concat([masses, box_masses], axis=0)
-    else:
-        raise Exception('box and box_masses must be same shape!')
-    radius = tf.convert_to_tensor(radius)
-    fixed_radius_search = ml3d.layers.FixedRadiusSearch(return_distances=True)
-    neighbors_index, neighbors_row_splits, dist = fixed_radius_search(all_pos, pos, radius)
-    neighbors = tf.RaggedTensor.from_row_splits(
-        values=tf.gather(all_pos, neighbors_index),
-        row_splits=neighbors_row_splits)
-    dist = neighbors - tf.expand_dims(pos, axis=1)
-    # dist = tf.expand_dims(out_pos, axis=0) - tf.expand_dims(out_pos, axis=1)
-    dist = tf.reduce_sum(dist ** 2, axis=-1) / radius ** 2
-    masses = tf.RaggedTensor.from_row_splits(values=tf.gather(all_masses, neighbors_index),
-                                             row_splits=neighbors_row_splits)
-    densities = masses * win(dist)
-    dens = tf.reduce_sum(densities, axis=-1)
-
-    return dens
-
-
 def density_loss_pbf(label, pos, pred_dens, density0, fac, eps=0.01, use_max=False, **kwargs):
     rest_dens = density0
     if use_max:

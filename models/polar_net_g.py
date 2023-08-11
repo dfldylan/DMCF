@@ -2,8 +2,7 @@ import tensorflow as tf
 from scipy.spatial import cKDTree
 import open3d.ml.tf as o3dml
 import numpy as np
-from utils.tools.losses import get_window_func, compute_density, compute_pressure, get_loss, compute_density_with_box, \
-    get_dilated_pos
+from utils.tools.losses import get_window_func, compute_density, compute_pressure
 from utils.tools.neighbor import reduce_subarrays_sum_multi
 
 from .pbf_real import PBFReal
