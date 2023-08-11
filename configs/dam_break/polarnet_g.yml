@@ -39,7 +39,7 @@ pipeline:
   version: 3d
 
   max_epoch: 50
-  batch_size: 8
+  batch_size: 4
   iter: 1000
   
   window_bnds: [15000]
