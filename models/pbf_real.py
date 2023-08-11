@@ -29,7 +29,7 @@ class PBFReal(BaseModel):
                  timestep=0.0025,
                  query_radii=None,
                  density0=1000,
-                 solver_iterations=3,
+                 solver_iterations=10,
                  viscosity=0.02,
                  vorticity_fac=0.00001,
                  window_dens='cubic',
