@@ -14,11 +14,10 @@ def get_window_func(typ, fac=1.0, **kwargs):
 
         def func(q):
             q_sqrt = tf.sqrt(q)
-            return fac * 4 / 3 * tf.compat.v1.where(q <= 1,
-                                                    tf.compat.v1.where(q_sqrt <= 0.5,
-                                                                       6 * (q_sqrt ** 3 - q) + 1,
-                                                                       2 * (1 - q_sqrt) ** 3),
-                                                    tf.zeros_like(q_sqrt))
+            return fac * 4 / 3 * tf.compat.v1.where(
+                q <= 1,
+                tf.compat.v1.where(q_sqrt <= 0.5, 6 * (q_sqrt**3 - q) + 1, 2 *
+                                   (1 - q_sqrt)**3), tf.zeros_like(q_sqrt))
     elif typ == "linear":
 
         def func(q):
@@ -34,11 +33,10 @@ def get_window_func(typ, fac=1.0, **kwargs):
         def func(q):  # fac = 6.0 / (np.pi * h**3) (r/(rl*h))
             # return tf.where(q <= 1, 1.0, 0.0)
             q_sqrt = tf.sqrt(q)
-            return fac * 4 / 3 * tf.compat.v1.where(q <= 1,
-                                                    tf.compat.v1.where(q_sqrt <= 0.5,
-                                                                       18 * q - 12 * q_sqrt,
-                                                                       -6 * (1 - q_sqrt) ** 2),
-                                                    tf.zeros_like(q_sqrt))
+            return fac * 4 / 3 * tf.compat.v1.where(
+                q <= 1,
+                tf.compat.v1.where(q_sqrt <= 0.5, 18 * q - 12 * q_sqrt, -6 *
+                                   (1 - q_sqrt)**2), tf.zeros_like(q_sqrt))
     elif typ is None:
         func = None
     else:
@@ -53,7 +51,7 @@ def get_loss(typ, fac=1.0, **kwargs):
             pre_f = tf.exp(-kwargs.get("pre_scale", 0.0) *
                            tf.cast(kw.get("pre_steps"), tf.float32))
             diff = (tf.reduce_sum(
-                (target - pred) ** 2, axis=-1) + 1e-9) ** kwargs.get("gamma", 0.5)
+                (target - pred)**2, axis=-1) + 1e-9)**kwargs.get("gamma", 0.5)
             return fac * tf.reduce_mean(pre_f * diff)
 
         return f
@@ -62,12 +60,13 @@ def get_loss(typ, fac=1.0, **kwargs):
         def f(target, pred, **kw):
             pre_f = tf.exp(-kwargs.get("pre_scale", 0.0) *
                            tf.cast(kw.get("pre_steps"), tf.float32))
-            importance = tf.exp(-kwargs.get("neighbor_scale", 1.0) *
-                                kw.get("num_fluid_neighbors"))
+            fluid_importance = tf.exp(-kwargs.get("neighbor_scale", 1.0) *
+                                      kw.get("num_fluid_neighbors"))
+            solid_importance = tf.exp(kwargs.get("box_neighbor_scale", 1.0) * kw.get("num_solid_neighbors", 0.0))
             scale = -kwargs.get("scale", 1.0)
             diff = (tf.reduce_sum(
                 ((target - pred) * scale) ** 2, axis=-1) + 1e-9)**kwargs.get("gamma", 0.5)
-            return fac * tf.reduce_mean(pre_f * importance * diff)
+            return fac * tf.reduce_mean(pre_f * fluid_importance * solid_importance * diff)
 
         return f
     elif typ == "dense":
@@ -79,8 +78,8 @@ def get_loss(typ, fac=1.0, **kwargs):
             inp = kw.get("input")[0]
             prev = kw.get("target_prev")
             diff = (tf.reduce_sum(
-                ((target - prev) - (pred - inp)) ** 2, axis=-1) +
-                    1e-9) ** kwargs.get("gamma", 0.5)
+                ((target - prev) - (pred - inp))**2, axis=-1) +
+                    1e-9)**kwargs.get("gamma", 0.5)
             return fac * tf.reduce_mean(diff)
 
         return f
@@ -92,8 +91,8 @@ def get_loss(typ, fac=1.0, **kwargs):
             importance = tf.exp(-kwargs.get("neighbor_scale", 1.0) *
                                 kw.get("num_fluid_neighbors"))
             diff = (tf.reduce_sum(
-                ((target - prev) - (pred - inp)) ** 2, axis=-1) +
-                    1e-9) ** kwargs.get("gamma", 0.5)
+                ((target - prev) - (pred - inp))**2, axis=-1) +
+                    1e-9)**kwargs.get("gamma", 0.5)
             return fac * tf.reduce_mean(importance * diff)
 
         return f
@@ -133,7 +132,7 @@ def _grid_pos(pos, res):
                                  tf.int32),
                          tf.ones((tf.shape(pos)[0], 1), tf.bool),
                          shape=[xs, ys, zs, 1])
-    mask = tf.reshape(mask, (-1,))
+    mask = tf.reshape(mask, (-1, ))
 
     return grid_pos[mask]
 
@@ -143,7 +142,7 @@ def grid_pos(pos, voxel_size, centralize=False, pad=0, hyst=0.1):
         center = tf.reduce_mean(pos, axis=0)
         pos = pos - center
 
-    # discretize
+    #discretize
     dpos = tf.concat([
         tf.cast(tf.floor(pos / tf.maximum(voxel_size, 1e-5) -
                          tf.where(voxel_size >= 1e-5, hyst, tf.constant(0.0))),
@@ -152,7 +151,7 @@ def grid_pos(pos, voxel_size, centralize=False, pad=0, hyst=0.1):
                          tf.where(voxel_size >= 1e-5, hyst, tf.constant(0.0))),
                 dtype=tf.int32)
     ],
-        axis=0)
+                     axis=0)
     offset = tf.stack(tf.meshgrid(tf.where(voxel_size[0] >= 1e-5,
                                            tf.range(-pad, 2 + pad),
                                            tf.range(0, 1)),
@@ -192,10 +191,10 @@ def grid_pos_bnds(pos, voxel_size, centralize=False):
         maxpos = tf.maximum(tf.reduce_max(pos, axis=0) - minpos, 1e-7)
         r = tf.round(maxpos / tf.maximum(voxel_size, 1e-5))
 
-        # discretize
+        #discretize
         dpos = tf.cast(tf.round((pos - minpos) / maxpos * r), dtype=tf.int32)
     else:
-        # discretize
+        #discretize
         dpos = tf.cast(tf.round(pos / tf.maximum(voxel_size, 1e-5)),
                        dtype=tf.int32)
 
@@ -307,8 +306,8 @@ def compute_density(out_pos, in_pos=None, radius=0.005, win=None):
         row_splits=neighbors_row_splits)
 
     dist = neighbors - tf.expand_dims(out_pos, axis=1)
-    # dist = tf.expand_dims(out_pos, axis=0) - tf.expand_dims(out_pos, axis=1)
-    dist = tf.reduce_sum(dist ** 2, axis=-1) / radius ** 2
+    #dist = tf.expand_dims(out_pos, axis=0) - tf.expand_dims(out_pos, axis=1)
+    dist = tf.reduce_sum(dist**2, axis=-1) / radius**2
     dens = tf.reduce_sum(win(dist), axis=-1)
     return dens
 
@@ -322,7 +321,7 @@ def quat_mult(q, r):
         r[..., 0] * q[..., 3] - r[..., 1] * q[..., 2] + r[..., 2] * q[..., 1] +
         r[..., 3] * q[..., 0]
     ],
-        axis=-1)
+                    axis=-1)
 
 
 def quat_conj(q):
@@ -362,7 +361,7 @@ def compute_transformed_dx(pos, scale=None, rot=None, radius=0.005):
         scale = tf.RaggedTensor.from_row_splits(
             values=tf.gather(scale, neighbors_index),
             row_splits=neighbors_row_splits)
-        # scale = (neighbors + tf.expand_dims(scale, axis=1)) / 2
+        #scale = (neighbors + tf.expand_dims(scale, axis=1)) / 2
         dx = dx * scale
 
     dx = tf.reduce_mean(dx, axis=1)
@@ -378,7 +377,7 @@ def compute_pressure(out_pts,
     if inp_pts is None:
         inp_pts = out_pts
     dens = compute_density(out_pts, inp_pts, win=win) if dens is None else dens
-    pres = tf.keras.activations.relu(stiffness * ((dens / rest_dens) ** 7 - 1))
+    pres = tf.keras.activations.relu(stiffness * ((dens / rest_dens)**7 - 1))
     return pres
 
 
@@ -401,6 +400,23 @@ def density_loss(gt,
 
     err = tf.keras.activations.relu(pred_dens - rest_dens - eps)
     return tf.reduce_mean(err)
+
+
+def compute_density_with_box(pos, masses, box=None, box_masses=None, radius=0.005, win=get_window_func("poly6")):
+    if box is None and box_masses is None:
+        all_pos, all_masses = pos, masses
+    elif box is not None and box_masses is not None:
+        all_pos = tf.concat([pos, box], axis=0)
+        all_masses = tf.concat([masses, box_masses], axis=0)
+    else:
+        raise Exception('box and box_masses must be same shape!')
+    radius = tf.convert_to_tensor(radius)
+    fixed_radius_search = ml3d.layers.FixedRadiusSearch(return_distances=True)
+    neighbors_index, neighbors_row_splits, dist = fixed_radius_search(all_pos, pos, radius)
+    dist = dist / radius ** 2
+    density = tf.gather(all_masses, neighbors_index) * win(dist)
+    density = ml3d.ops.reduce_subarrays_sum(density, neighbors_row_splits)
+    return density
 
 
 def density_loss_pbf(label, pos, pred_dens, density0, fac, eps=0.01, use_max=False, **kwargs):

@@ -3,5 +3,6 @@ from .hrnet import HRNet
 from .sym_net import SymNet
 from .cconv import CConv
 from .pointnet import PointNet
+from .polar_net import PolarNet
 
-__all__ = ['BaseModel', 'SymNet', 'HRNet', 'CConv', 'PointNet']
+__all__ = ['BaseModel', 'SymNet', 'HRNet', 'CConv', 'PointNet', 'PolarNet']
