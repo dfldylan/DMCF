@@ -109,7 +109,7 @@ class PolarNetG(PBFReal):
                          viscosity=viscosity,
                          window_dens=window_dens,
                          **kwargs)
-        # self.query_radii = particle_radii[0] * 2 if query_radii is None else query_radii
+        self.query_radii = particle_radii[0] * 3 if query_radii is None else query_radii
         diameter = 2.0 * particle_radii[0]
         volume = diameter ** 3
         self.fluid_mass = volume * self.m_density0
