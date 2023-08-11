@@ -48,8 +48,8 @@ class PBFReal(BaseModel):
         volume = diameter * diameter * diameter * 0.8
         self.fluid_mass = volume * self.m_density0
         self.m_maxIter = solver_iterations
-        self.m_viscosity = tf.Variable(viscosity, trainable=True, name="viscosity")
-        self.vorticity_fac = tf.Variable(vorticity_fac, trainable=False, name="vorticity_fac")
+        self.m_viscosity = viscosity
+        self.vorticity_fac = vorticity_fac
 
         self.loss_fn = {}
         for l, v in loss.items():
