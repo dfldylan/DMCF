@@ -26,7 +26,8 @@ def combine_nns(fluid_nns, solid_nns):
     combined_distance = tf.gather(combined_distance, rank)
     combined_ids = tf.gather(combined_ids, rank)
 
-    combined_row_splits = tf.ragged.segment_ids_to_row_splits(combined_ids)
+    combined_row_splits = tf.ragged.segment_ids_to_row_splits(combined_ids,
+                                                              num_segments=tf.shape(fluid_row_splits)[0] - 1)
     return combined_index, combined_row_splits, combined_distance
 
 
