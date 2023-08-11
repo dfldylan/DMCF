@@ -68,7 +68,7 @@ def get_loss(typ, fac=1.0, **kwargs):
             return fac * tf.reduce_mean(pre_f * fluid_importance * solid_importance * diff)
 
         return f
-    elif typ == "weighted_mse_with_vel":
+    elif typ == "weighted_mse_vel":
 
         def f(target, pred, **kw):
             pre_f = tf.exp(-kwargs.get("pre_scale", 0.0) * tf.cast(kw.get("pre_steps"), tf.float32))
@@ -77,10 +77,8 @@ def get_loss(typ, fac=1.0, **kwargs):
             fluid_importance = tf.exp(-kwargs.get("neighbor_scale", 1.0) * kw.get("num_fluid_neighbors"))
             solid_importance = tf.exp(kwargs.get("box_neighbor_scale", 1.0) * kw.get("num_solid_neighbors", 0.0))
             scale = -kwargs.get("scale", 1.0)
-            vel_scale = -kwargs.get("vel_scale", 1.0)
-            diff_pos = (target - pred) * scale
-            diff_vel = (target_vel - pred_vel) * vel_scale
-            diff = (tf.reduce_sum(tf.concat([diff_pos,diff_vel],axis=-1) ** 2, axis=-1) + 1e-9) ** kwargs.get("gamma", 0.5)
+            diff_vel = (target_vel - pred_vel) * scale
+            diff = (tf.reduce_sum(diff_vel ** 2, axis=-1) + 1e-9) ** kwargs.get("gamma", 0.5)
             return fac * tf.reduce_mean(pre_f * fluid_importance * solid_importance * diff)
 
         return f

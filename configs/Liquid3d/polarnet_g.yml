@@ -19,15 +19,21 @@ model:
   #  grav_eqvar: [0, -1, 0]
 
   loss:
-    weighted_mse_with_vel:
-      typ: weighted_mse_with_vel
+    weighted_mse:
+      typ: weighted_mse
       fac: 128.0
       gamma: 0.5
       neighbor_scale: 0.01
       box_neighbor_scale: 0.05
       scale: 1.0
-      vel_scale: 0.1
       #pre_scale: 0.04
+    weighted_mse_vel:
+      typ: weighted_mse_vel
+      fac: 128.0
+      gamma: 0.5
+      neighbor_scale: 0.01
+      box_neighbor_scale: 0.05
+      scale: 0.02
     dense_pbf:
       typ: dense_pbf
       fac: 128.0
