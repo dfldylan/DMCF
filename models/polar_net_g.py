@@ -2,7 +2,8 @@ import tensorflow as tf
 from scipy.spatial import cKDTree
 import open3d.ml.tf as o3dml
 import numpy as np
-from utils.tools.losses import get_window_func, compute_density, compute_pressure
+from utils.tools.losses import get_window_func, compute_density, compute_pressure, get_loss, compute_density_with_box, \
+    get_dilated_pos
 from utils.tools.neighbor import reduce_subarrays_sum_multi
 
 from .pbf_real import PBFReal
@@ -65,9 +66,9 @@ class PolarConv(tf.keras.layers.Layer):
         return tf.nn.softmax(tf.einsum('nx,xio->nio', polar_coords, kernel), axis=1)
 
 
-class PolarNet(PBFReal):
+class PolarNetG(PBFReal):
     def __init__(self,
-                 name="PolarNet",
+                 name="PolarNetG",
                  timestep=0.02,
                  grav=-9.81,
                  rest_dens=1000.0,
@@ -93,7 +94,7 @@ class PolarNet(PBFReal):
                  pres_feats=False,
                  stiffness=20.0,
                  channels=16,
-                 layer_channels=[32, 64, 64, 3],
+                 layer_channels=[48, 64, 64, 3],
                  out_scale=[0.01, 0.01, 0.01],
                  window_dens='cubic',
                  **kwargs):
@@ -109,7 +110,11 @@ class PolarNet(PBFReal):
                          viscosity=viscosity,
                          window_dens=window_dens,
                          **kwargs)
-        self.query_radii = particle_radii[0] * 2 if query_radii is None else query_radii
+        # self.query_radii = particle_radii[0] * 2 if query_radii is None else query_radii
+        diameter = 2.0 * particle_radii[0]
+        volume = diameter ** 3
+        self.fluid_mass = volume * self.m_density0
+
         self.use_mass = use_mass
         self.use_vel = use_vel
         self.use_acc = use_acc
@@ -144,19 +149,24 @@ class PolarNet(PBFReal):
                                                name="obs_dense",
                                                activation=None)
 
-        self.convs = []
-        self.denses = []
+        self.layers_ops = [None]
         for i in range(1, len(self.layer_channels)):
+            layer_ops = dict()
             ch = self.layer_channels[i]
-            conv = self.get_cconv(name='conv{0}'.format(i),
-                                  filters=ch,
-                                  activation=None,
-                                  ignore_query_points=self.ignore_query_points)
-            self.convs.append(conv)
-            dense = tf.keras.layers.Dense(units=ch,
-                                          name="dense{0}".format(i),
-                                          activation=None)
-            self.denses.append(dense)
+            if i != 1 and i != len(self.layer_channels) - 1:
+                ch = int(self.layer_channels[i] / 2)
+            if i != len(self.layer_channels) - 1:
+                conv = self.get_cconv(name='conv{0}'.format(i),
+                                      filters=ch,
+                                      activation=None,
+                                      ignore_query_points=self.ignore_query_points)
+                layer_ops['conv'] = conv
+            if i != 1:
+                dense = tf.keras.layers.Dense(units=ch,
+                                              name="dense{0}".format(i),
+                                              activation=None)
+                layer_ops['dense'] = dense
+            self.layers_ops.append(layer_ops)
 
     def get_cconv(self,
                   name,
@@ -181,9 +191,9 @@ class PolarNet(PBFReal):
                    vel_corr=None,
                    tape=None,
                    **kwargs):
-        pos, vel, solid_masses = super(PolarNet, self).preprocess(data, training, vel_corr, tape, **kwargs)
+        pos, vel, solid_masses = super(PolarNetG, self).preprocess(data, training, vel_corr, tape, **kwargs)
         _pos, _vel, acc, feats, box, bfeats = data
-        self.solid_masses = solid_masses
+        self.solid_masses = 1.2 * solid_masses
         #
         # preprocess features
         #
@@ -192,7 +202,7 @@ class PolarNet(PBFReal):
         box_feats = [tf.ones_like(box[:, :1])]
         if self.use_mass:
             fluid_feats.append(fluid_feats[0] * self.fluid_mass)
-            box_feats.append(solid_masses[:, tf.newaxis])
+            box_feats.append(self.solid_masses[:, tf.newaxis])
         if self.use_vel:
             fluid_feats.append(vel)
         if self.use_acc:
@@ -244,17 +254,24 @@ class PolarNet(PBFReal):
     def forward(self, prev, data, training=True, **kwargs):
         pos, vel, feats = prev
         _pos, _vel, acc, _feats, box, bfeats = data
-        feats = feats[:tf.shape(pos)[0]]
+        # feats = feats[:tf.shape(pos)[0]]
 
-        ans_convs = [feats]
-        for conv, dense in zip(self.convs, self.denses):
+        ans_convs = [feats]  # [channels*3]
+        for i in range(1, len(self.layers_ops)):
+            conv = self.layers_ops[i].get('conv', None)
+            dense = self.layers_ops[i].get('dense', None)
             feats = tf.keras.activations.relu(ans_convs[-1])
-            ans_conv, nns = conv(feats, pos, pos, self.query_radii)
-            ans_dense = dense(feats)
-            if ans_dense.shape[-1] == ans_convs[-1].shape[-1]:
-                ans = ans_conv + ans_dense + ans_convs[-1]
-            else:
-                ans = ans_conv + ans_dense
+            ans = []
+            if conv is not None:
+                if i == 1:
+                    ans_conv, _ = conv(feats, self.all_pos, pos, self.query_radii)
+                else:
+                    ans_conv, self.fluid_nns = conv(feats, pos, pos, self.query_radii)
+                ans.append(ans_conv)
+            if dense is not None:
+                ans_dense = dense(feats)
+                ans.append(ans_dense)
+            ans = tf.concat(ans, axis=-1)
             ans_convs.append(ans)
 
         out = ans_convs[-1]
@@ -271,7 +288,6 @@ class PolarNet(PBFReal):
         self.obs = self.out_scale * out[pcnt:]
 
         pos2_corrected, vel2_corrected = self.compute_new_pos_vel(_pos, _vel, pos, vel, self.pos_correction)
-        self.fluid_nns = nns
 
         return [pos2_corrected, vel2_corrected]
 
@@ -288,7 +304,7 @@ class PolarNet(PBFReal):
         self.densities, _ = self.compute_density_with_mass(group_position, group_masses, group_neighbors,
                                                            self.m_density0, self.query_radii)
 
-        pos, vel = super(PolarNet, self).postprocess(prev, data, training, vel_corr, **kwargs)
+        # pos, vel = super(PolarNetG, self).postprocess(prev, data, training, vel_corr, **kwargs)
         return [pos, vel]
 
     def loss(self, results, data):
