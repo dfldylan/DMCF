@@ -60,14 +60,27 @@ def get_loss(typ, fac=1.0, **kwargs):
     elif typ == "weighted_mse":
 
         def f(target, pred, **kw):
-            pre_f = tf.exp(-kwargs.get("pre_scale", 0.0) *
-                           tf.cast(kw.get("pre_steps"), tf.float32))
-            fluid_importance = tf.exp(-kwargs.get("neighbor_scale", 1.0) *
-                                      kw.get("num_fluid_neighbors"))
+            pre_f = tf.exp(-kwargs.get("pre_scale", 0.0) * tf.cast(kw.get("pre_steps"), tf.float32))
+            fluid_importance = tf.exp(-kwargs.get("neighbor_scale", 1.0) * kw.get("num_fluid_neighbors"))
             solid_importance = tf.exp(kwargs.get("box_neighbor_scale", 1.0) * kw.get("num_solid_neighbors", 0.0))
             scale = -kwargs.get("scale", 1.0)
-            diff = (tf.reduce_sum(
-                ((target - pred) * scale) ** 2, axis=-1) + 1e-9)**kwargs.get("gamma", 0.5)
+            diff = (tf.reduce_sum(((target - pred) * scale) ** 2, axis=-1) + 1e-9) ** kwargs.get("gamma", 0.5)
+            return fac * tf.reduce_mean(pre_f * fluid_importance * solid_importance * diff)
+
+        return f
+    elif typ == "weighted_mse_with_vel":
+
+        def f(target, pred, **kw):
+            pre_f = tf.exp(-kwargs.get("pre_scale", 0.0) * tf.cast(kw.get("pre_steps"), tf.float32))
+            target_vel = kw.get("target_vel")
+            pred_vel = kw.get("pred_vel")
+            fluid_importance = tf.exp(-kwargs.get("neighbor_scale", 1.0) * kw.get("num_fluid_neighbors"))
+            solid_importance = tf.exp(kwargs.get("box_neighbor_scale", 1.0) * kw.get("num_solid_neighbors", 0.0))
+            scale = -kwargs.get("scale", 1.0)
+            vel_scale = -kwargs.get("vel_scale", 1.0)
+            diff_pos = (target - pred) * scale
+            diff_vel = (target_vel - pred_vel) * vel_scale
+            diff = (tf.reduce_sum(tf.concat([diff_pos,diff_vel],axis=-1) ** 2, axis=-1) + 1e-9) ** kwargs.get("gamma", 0.5)
             return fac * tf.reduce_mean(pre_f * fluid_importance * solid_importance * diff)
 
         return f
@@ -426,5 +439,3 @@ def approx_vel(pos_0, pos_1, n=None, m=None):
     vel = tf.expand_dims(pos_1, axis=2) - tf.expand_dims(pos_0, axis=1)
     match = tf.expand_dims(approx_match(pos_0, pos_1, n, m), axis=-1)
     return tf.reduce_sum(vel * match, axis=1)
-
-
