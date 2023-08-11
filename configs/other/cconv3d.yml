@@ -66,6 +66,7 @@ pipeline:
       0.00003125
     ]
 
+  base_data_dir : # path to output data
   main_log_dir: ./logs
   train_sum_dir: ./train_log
   output_dir: ./output

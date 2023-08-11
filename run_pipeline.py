@@ -108,6 +108,14 @@ def main():
         cfg_dict_dataset, cfg_dict_pipeline, cfg_dict_model = \
                         Config.merge_cfg_file(cfg, args, extra_dict)
 
+        if 'base_data_dir' in cfg_dict_pipeline:
+            if 'main_log_dir' in cfg_dict_pipeline:
+                cfg_dict_pipeline.main_log_dir = os.path.join(cfg_dict_pipeline.base_data_dir,cfg_dict_pipeline.main_log_dir)
+            if 'train_sum_dir' in cfg_dict_pipeline:
+                cfg_dict_pipeline.train_sum_dir = os.path.join(cfg_dict_pipeline.base_data_dir,cfg_dict_pipeline.train_sum_dir)
+            if 'output_dir' in cfg_dict_pipeline:
+                cfg_dict_pipeline.output_dir = os.path.join(cfg_dict_pipeline.base_data_dir,cfg_dict_pipeline.output_dir)
+
         dataset = DatasetGroup(**cfg_dict_dataset,
                                split=args.split,
                                regen=args.regen)

@@ -36,6 +36,28 @@ Optional:
 - *Liquid3d* ([source](https://github.com/isl-org/DeepLagrangianFluids)): https://drive.google.com/file/d/1b3OjeXnsvwUAeUq2Z0lcrX7j9U7zLO07
 - *WaterRamps* ([source](https://github.com/deepmind/deepmind-research/tree/master/learning_to_simulate)): ```bash download_waterramps.sh PATH/TO/OUTPUT_DIR```
 
+### How to set dataset path
+
+Under configs/*.yml:
+
+```yaml
+dataset:
+  dataset_path:  # path to dataset
+```
+
+## Path to runtime generated data
+
+Under configs/*.yml:
+
+```yaml
+pipeline:
+  base_data_dir : # path to output data
+  
+  main_log_dir: ./logs  # os.path.join(base_data_dir, main_log_dir)
+  train_sum_dir: ./train_log  # os.path.join(base_data_dir, train_sum_dir)
+  output_dir: ./output  # os.path.join(base_data_dir, output_dir)
+```
+
 ## Pretrained Models:
 
 The pretrained models are in the ```checkpoints``` subfolder.
@@ -43,7 +65,6 @@ Run a pretrained mode by setting the path to the checkpoint with the ```ckpt_pat
 For example:
 ```bash
 python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
-                       --dataset_path PATH/TO/DATASET \
                        --ckpt_path checkpoints/WBC-SPH/ckpt \
                        --split test
 ```
@@ -59,7 +80,6 @@ python run_pipeline.py --cfg_file configs/column/hrnet.yml \
 Run with 2D pipeline:
 ```bash
 python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
-                       --dataset_path PATH/TO/DATASET \
                        --split train
 ```
 
@@ -67,7 +87,6 @@ python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
 
 ```bash
 python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
-                       --dataset_path PATH/TO/DATASET \
                        --split test \
                        --pipeline.data_generator.test.time_end 800 \
                        --pipeline.data_generator.valid.time_end 800 \
@@ -95,7 +114,6 @@ python utils/draw_sim2d.py PATH/TO/HDF5_FILE OUTPUT/PATH \
 
 ```bash
 python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
-                       --dataset_path PATH/TO/DATASET \
                        --split valid
 ```
 
