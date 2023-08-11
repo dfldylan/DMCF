@@ -110,6 +110,9 @@ class PolarNet(PBFReal):
                          window_dens=window_dens,
                          **kwargs)
         self.query_radii = particle_radii[0] * 2 if query_radii is None else query_radii
+        diameter = 2.0 * particle_radii[0]
+        volume = diameter ** 3
+        self.fluid_mass = volume * self.m_density0
         self.use_mass = use_mass
         self.use_vel = use_vel
         self.use_acc = use_acc
@@ -183,7 +186,7 @@ class PolarNet(PBFReal):
                    **kwargs):
         pos, vel, solid_masses = super(PolarNet, self).preprocess(data, training, vel_corr, tape, **kwargs)
         _pos, _vel, acc, feats, box, bfeats = data
-        self.solid_masses = solid_masses
+        self.solid_masses = 1.2 * solid_masses
         #
         # preprocess features
         #
@@ -192,7 +195,7 @@ class PolarNet(PBFReal):
         box_feats = [tf.ones_like(box[:, :1])]
         if self.use_mass:
             fluid_feats.append(fluid_feats[0] * self.fluid_mass)
-            box_feats.append(solid_masses[:, tf.newaxis])
+            box_feats.append(self.solid_masses[:, tf.newaxis])
         if self.use_vel:
             fluid_feats.append(vel)
         if self.use_acc:
