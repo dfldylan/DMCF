@@ -323,9 +323,11 @@ class PolarNetG(PBFReal):
         num_fluid_neighbors, num_solid_neighbors = \
             tf.stop_gradient(num_fluid_neighbors), tf.stop_gradient(num_solid_neighbors)
 
+        target = tf.concat([target, target_vel], axis=-1)
+        pred = tf.concat([pos, vel], axis=-1)
         for n, l in self.loss_fn.items():
             loss[n] = l(target,
-                        pos,
+                        pred,
                         pred_dens=self.densities,
                         density0=self.m_density0,
                         pre_steps=data[3],
