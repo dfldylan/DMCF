@@ -122,9 +122,8 @@ class PBFReal(BaseModel):
         _pos, _vel, acc, feats, box, bfeats = data
 
         vel = self.compute_XSPH_viscosity(self.fluid_nns, pos, vel, self.fluid_mass, self.densities, self.m_viscosity,
-                                          self.query_radii, win=get_window_func("cubic"))
-        vel = self.compute_vorticity_confinement(self.fluid_nns, vel, pos, self.query_radii,
-                                                 win=get_window_func("cubic_grad"))
+                                          self.query_radii)
+        # vel = self.compute_vorticity_confinement(self.fluid_nns, vel, pos, self.query_radii, self.vorticity_fac)
 
         return [pos, vel]
 
