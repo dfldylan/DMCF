@@ -100,21 +100,25 @@ def main():
             print(e)
 
     if args.cfg_file is not None:
+        args.cfg_file = os.path.join('configs', args.cfg_file)
         cfg = Config.load_from_file(args.cfg_file)
 
         Pipeline = getattr(pipelines, cfg.pipeline.name)
         Model = getattr(models, cfg.model.name)
 
         cfg_dict_dataset, cfg_dict_pipeline, cfg_dict_model = \
-                        Config.merge_cfg_file(cfg, args, extra_dict)
+            Config.merge_cfg_file(cfg, args, extra_dict)
 
         if 'base_data_dir' in cfg_dict_pipeline:
             if 'main_log_dir' in cfg_dict_pipeline:
-                cfg_dict_pipeline.main_log_dir = os.path.join(cfg_dict_pipeline.base_data_dir,cfg_dict_pipeline.main_log_dir)
+                cfg_dict_pipeline.main_log_dir = os.path.join(cfg_dict_pipeline.base_data_dir,
+                                                              cfg_dict_pipeline.main_log_dir)
             if 'train_sum_dir' in cfg_dict_pipeline:
-                cfg_dict_pipeline.train_sum_dir = os.path.join(cfg_dict_pipeline.base_data_dir,cfg_dict_pipeline.train_sum_dir)
+                cfg_dict_pipeline.train_sum_dir = os.path.join(cfg_dict_pipeline.base_data_dir,
+                                                               cfg_dict_pipeline.train_sum_dir)
             if 'output_dir' in cfg_dict_pipeline:
-                cfg_dict_pipeline.output_dir = os.path.join(cfg_dict_pipeline.base_data_dir,cfg_dict_pipeline.output_dir)
+                cfg_dict_pipeline.output_dir = os.path.join(cfg_dict_pipeline.base_data_dir,
+                                                            cfg_dict_pipeline.output_dir)
 
         dataset = DatasetGroup(**cfg_dict_dataset,
                                split=args.split,
@@ -134,9 +138,7 @@ def main():
         Pipeline = getattr(pipelines, args.pipeline)
         Model = getattr(models, args.model)
 
-
-        cfg_dict_dataset, cfg_dict_pipeline, cfg_dict_model = \
-                        Config.merge_module_cfg_file(args, extra_dict)
+        cfg_dict_dataset, cfg_dict_pipeline, cfg_dict_model = Config.merge_module_cfg_file(args, extra_dict)
 
         dataset = DatasetGroup(**cfg_dict_dataset,
                                split=args.split,
