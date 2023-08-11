@@ -5,7 +5,8 @@ from os.path import join, exists, dirname, abspath
 from abc import ABC, abstractmethod
 
 from o3d.utils import Config
-from utils.tools.losses import reduce_subarrays_sum_multi, get_window_func
+from utils.tools.losses import get_window_func, compute_density
+from utils.tools.neighbor import neighbors_mask, reduce_subarrays_sum_multi
 
 
 @tf.function
