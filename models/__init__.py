@@ -6,5 +6,6 @@ from .pointnet import PointNet
 from .polar_net import PolarNet
 from .polar_net_g import PolarNetG
 from .pbf_real import PBFReal
+from .gns import GNS
 
-__all__ = ['BaseModel', 'SymNet', 'HRNet', 'CConv', 'PointNet', 'PolarNet', 'PolarNetG', 'PBFReal']
+__all__ = ['BaseModel', 'SymNet', 'HRNet', 'CConv', 'PointNet', 'PolarNet', 'PolarNetG', 'PBFReal', 'GNS']
