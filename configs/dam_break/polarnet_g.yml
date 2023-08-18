@@ -27,9 +27,9 @@ model:
       box_neighbor_scale: 0.05
       scale: 1.1
       #pre_scale: 0.04
-    dense_pbf:
-      typ: dense_pbf
-      fac: 0.125
+#    dense_pbf:
+#      typ: dense_pbf
+#      fac: 0.125
 
   dens_feats: False
   pres_feats: False

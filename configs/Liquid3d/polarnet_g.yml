@@ -27,16 +27,16 @@ model:
       box_neighbor_scale: 0.05
       scale: 1.0
       #pre_scale: 0.04
-    weighted_mse_vel:
-      typ: weighted_mse_vel
-      fac: 128.0
-      gamma: 0.5
-      neighbor_scale: 0.01
-      box_neighbor_scale: 0.05
-      scale: 0.02
-    dense_pbf:
-      typ: dense_pbf
-      fac: 128.0
+#    weighted_mse_vel:
+#      typ: weighted_mse_vel
+#      fac: 128.0
+#      gamma: 0.5
+#      neighbor_scale: 0.01
+#      box_neighbor_scale: 0.05
+#      scale: 0.02
+#    dense_pbf:
+#      typ: dense_pbf
+#      fac: 128.0
 
   dens_feats: False
   pres_feats: False

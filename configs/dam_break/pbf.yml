@@ -11,7 +11,7 @@ model:
   particle_radii: [0.025]
   timestep: .0166666666 # depends on stride of dataloader (timestep * stride)
   grav: -8.91818181818182
-#  solver_iterations: 3
+  solver_iterations: 5
 
   #transformation:
   #  grav_eqvar: [0, -1, 0]
