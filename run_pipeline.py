@@ -156,6 +156,8 @@ def main():
 
     if args.split == 'test':
         pipeline.run_test()
+    elif args.split == 'test_npz':
+        pipeline.run_test(test_dataset=Dataset())
     elif args.split == 'valid':
         pipeline.run_valid()
     else:

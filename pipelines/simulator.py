@@ -109,7 +109,7 @@ class Simulator(BasePipeline):
 
         return results
 
-    def run_test(self, epoch=None):
+    def run_test(self, epoch=None, test_dataset=None):
         """
         Run test with test data split.
         """
@@ -124,7 +124,9 @@ class Simulator(BasePipeline):
         log.info("Logging in file : {}".format(log_file_path))
         log.addHandler(logging.FileHandler(log_file_path))
 
-        test_data = get_rollout(dataset.test, **cfg.data_generator,
+        if not test_dataset:
+            test_dataset = dataset.test
+        test_data = get_rollout(test_dataset, **cfg.data_generator,
                                 **cfg.data_generator.test)
 
         if epoch is None:
