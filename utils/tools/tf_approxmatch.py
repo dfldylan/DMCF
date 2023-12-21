@@ -28,7 +28,7 @@ import tensorflow as tf
 from tensorflow.python.framework import ops
 import os.path as osp
 
-base_dir = osp.dirname(osp.abspath(__file__))
+base_dir = osp.join(osp.expanduser('~'), '.local', 'lib')
 
 if osp.exists(osp.join(base_dir, 'tf_approxmatch_so.so')):
     approxmatch_module = tf.load_op_library(

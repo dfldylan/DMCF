@@ -29,7 +29,7 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import gen_math_ops
 import os.path as osp
 
-base_dir = osp.dirname(osp.abspath(__file__))
+base_dir = osp.join(osp.expanduser('~'), '.local', 'lib')
 
 if osp.exists(osp.join(base_dir, 'nn_distance_so.so')):
     nn_distance_module = tf.load_op_library(

@@ -27,14 +27,14 @@
 import tensorflow as tf
 from tensorflow.python.framework import ops
 import sys
-import os
+import os.path as osp
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = osp.join(osp.expanduser('~'), '.local', 'lib')
 sys.path.append(BASE_DIR)
 
-if os.path.exists(os.path.join(BASE_DIR, 'sampling_so.so')):
+if osp.exists(osp.join(BASE_DIR, 'sampling_so.so')):
     sampling_module = tf.load_op_library(
-        os.path.join(BASE_DIR, 'sampling_so.so'))
+        osp.join(BASE_DIR, 'sampling_so.so'))
 else:
     print("WARNING: sampling_so module not installed!")
 
