@@ -119,12 +119,13 @@ def setup():
 
 
 @tf.function(experimental_relax_shapes=True)
-def run_inference(inputs):
+def run_inference(inputs, model):
     """
     Run inference on a given data.
 
     Args:
-        data: A raw data.
+        inputs: Input data for the model.
+        model: The model to use for inference.
     Returns:
         Returns the inference results.
     """
@@ -135,12 +136,14 @@ def run_inference(inputs):
     return results
 
 
-def run_rollout(data, timesteps=2):
+def run_rollout(data, timesteps=2, model=None):
     """
     Run rollout on a given data.
 
     Args:
         data: A raw data.
+        model: The model to use for rollout.
+        timesteps: Number of timesteps for the rollout.
     Returns:
         Returns the inference results.
     """
@@ -158,14 +161,13 @@ def run_rollout(data, timesteps=2):
     results = []
 
     # dummy init
-    run_inference([inputs])
+    run_inference([inputs], model)
 
     results.append(inputs[0])
     timing = []
     for t in tqdm(range(timesteps - 1), "rollout"):
         start = time.time()
-        #print(inputs[0].shape)
-        inputs = run_inference([inputs])[0]
+        inputs = run_inference([inputs], model)[0]
         end = time.time()
         timing.append(end - start)
         results.append(inputs[0])
@@ -210,7 +212,8 @@ def main(model):
 
     results = run_rollout(
         data[0],
-        len(data) if args.timesteps is None else args.timesteps)
+        len(data) if args.timesteps is None else args.timesteps, 
+        model)
 
     pos = np.ones((len(results), results[-1].shape[0], 3)) * 1000
 
