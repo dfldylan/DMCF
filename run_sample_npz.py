@@ -20,7 +20,7 @@ def parse_args():
     parser.add_argument('--inflow', help='Inflow timing', default=0, type=int)
     parser.add_argument('--timesteps',
                         help='Amount of timesteps',
-                        default=None,
+                        default=51,
                         type=int)
     parser.add_argument('--device',
                         help='device to run the pipeline',
@@ -138,7 +138,7 @@ def run_inference(inputs, model):
     return results
 
 
-def run_rollout(data, timesteps=51, model=None):
+def run_rollout(data, timesteps=2, model=None):
     """
     Run rollout on a given data.
 
@@ -219,27 +219,32 @@ def load_data(path, start_npz='fluid_0100'):
     return data
 
 
-def main(model):
+def main(model, fast_mode=False):
     start_npz = args.start_npz if args.start_npz is not None else None
     data = load_data(args.data_path, start_npz)
     epoch = load_ckpt(args.ckpt_path, model)
 
+    s_time = time.time()
     pos, vel = run_rollout(data, args.timesteps, model)
+    e_time = time.time()
+    a_time = (e_time-s_time)/(args.timesteps-1)
+    print(a_time)
     print(pos.shape)
 
     out_dir = os.path.join(args.output_dir, "example", "0000")
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    # export static particles
-    write_particles(os.path.join(out_dir, 'box'), data['box'], data['box_normals'])
+    if not fast_mode:
+        # export static particles
+        write_particles(os.path.join(out_dir, 'box'), data['box'], data['box_normals'])
 
-    for i in range(len(pos)):
-        fluid_output_path = os.path.join(out_dir, 'fluid_{0:04d}'.format(i))
-        if isinstance(pos[i], np.ndarray):
-            write_particles(fluid_output_path, pos[i], vel[i])
-        else:
-            write_particles(fluid_output_path, pos[i].numpy(), vel[i].numpy())
+        for i in range(len(pos)):
+            fluid_output_path = os.path.join(out_dir, 'fluid_{0:04d}'.format(i))
+            if isinstance(pos[i], np.ndarray):
+                write_particles(fluid_output_path, pos[i], vel[i])
+            else:
+                write_particles(fluid_output_path, pos[i].numpy(), vel[i].numpy())
 
 
 def write_particles(path_without_ext, pos, vel=None, options=None):
