@@ -1,25 +1,13 @@
-# Deep Momentum-Conserving Fluids (DMCF)
+# SpheroNet
 
 ![TensorFlow badge](https://img.shields.io/badge/TensorFlow-supported-brightgreen?style=flat&logo=tensorflow)
 
-This repository contains the code for our NeurIPS paper *Guaranteed Conservation of Momentum for Learning Particle-based Fluid Dynamics*. Our algorithm makes it possible to learn highly accurate, efficient and momentum conserving fluid simulations based on particles.
+This repository contains the code for SpheroNet. Our algorithm makes it possible to learn highly accurate, efficient and momentum conserving fluid simulations based on particles.
 With the code published here, evaluations from the paper can be reconstructed, and new models can be trained.
-
-<p align="center"> <img src="canyon.gif" alt="canyon video"> </p>
-
-Please cite [our paper](https://openreview.net/pdf?id=6niwHlzh10U) if you find this code useful:
-```
-@inproceedings{Prantl2022Conserving,
-        title     = {Guaranteed Conservation of Momentum for Learning Particle-based Fluid Dynamics},
-        author    = {Lukas Prantl and Benjamin Ummenhofer and Vladlen Koltun and Nils Thuerey},
-        booktitle = {Conference on Neural Information Processing Systems},
-        year      = {2022},
-}
-```
 
 ## Dependencies and Setup
 
-Used environment: python3.7 with CUDA 11.3 and CUDNN 8.0.
+Used environment: python 3.8.10 with CUDA 11.2 and CUDNN 8.1.
 - Install libcap-dev: ```sudo apt install libcap-dev```
 - Install cmake: ```sudo apt install cmake```
 - Update pip: ```pip install --upgrade pip```
