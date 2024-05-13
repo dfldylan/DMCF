@@ -1,59 +1,14 @@
+import functools
 import numpy as np
-import yaml
 import tensorflow as tf
-from os.path import join, exists, dirname, abspath
-from abc import ABC, abstractmethod
-
-from o3d.utils import Config
-from utils.tools.losses import get_loss
-from utils.tools.neighbor import neighbors_mask, reduce_subarrays_sum_multi
-
-from .base_model import BaseModel
 import graph_nets as gn
 import sonnet as snt
-
-STD_EPSILON = 1e-8
 from typing import Callable
+from sklearn import neighbors
+from utils.tools.losses import get_loss
+from .base_model import BaseModel
 
 Reducer = Callable[[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor]
-import functools
-from sklearn import neighbors
-
-import collections
-
-Stats = collections.namedtuple('Stats', ['mean', 'std'])
-
-
-def _combine_std(std_x, std_y):
-    return np.sqrt(std_x ** 2 + std_y ** 2)
-
-
-import tensorflow as tf
-
-
-def merge_dims(tensor, start, size):
-    """Merges dimensions of a tensor from 'start' for 'size' dimensions."""
-    static_input_shape = tensor.shape.as_list()
-    rank = len(static_input_shape)
-
-    if start < 0:
-        start += rank  # Negative indexing
-
-    if rank < start + size:
-        raise ValueError(f"Rank of inputs must be at least {start + size}.")
-
-    initial = static_input_shape[:start]
-    middle = static_input_shape[start:start + size]
-    final = static_input_shape[start + size:]
-
-    if None in middle:
-        middle = [None]
-    else:
-        middle = [tf.reduce_prod(middle)]
-
-    new_shape = initial + middle + final
-
-    return tf.reshape(tensor, new_shape)
 
 
 class GNS(BaseModel):
@@ -72,7 +27,7 @@ class GNS(BaseModel):
                  hidden_size=128,
                  hidden_layers=2,
                  message_passing_steps=10,
-                 num_particle_types=2,
+                 num_particle_types=1,
                  particle_type_embedding_size=16,
                  loss={
                      "weighted_mse": {
@@ -115,41 +70,38 @@ class GNS(BaseModel):
                 trainable=True)
 
     def forward(self, prev, data, training=True, **kwargs):
-        position_sequence, n_particles_per_example, _, particle_types = prev
-        return self._build(position_sequence, n_particles_per_example, particle_types=particle_types)
+        position_sequence, n_particles_per_example = prev
+        _pos, _vel, acc, feats, box, bfeats = data
+        acc = self._build(_pos, _vel, n_particles_per_example, box=box, bfeats=bfeats)
+
+        return acc
 
     def preprocess(self, data, training=True, **kwargs):
         _pos, _vel, acc, feats, box, bfeats = data
         # 在此处插入您的数据预处理代码
-        position_sequence = tf.concat([_pos, box], axis=0)[:, None, :]
-        n_particles_per_example = [tf.shape(position_sequence)[0]]
-        particle_types = tf.concat([tf.zeros_like(_pos[:, 0], dtype=tf.int32), tf.ones_like(box[:, 0], dtype=tf.int32)],
-                                   axis=0)
-        return [position_sequence, n_particles_per_example, None, particle_types]
+        position_sequence = _pos[:, None, :]
+        n_particles_per_example = tf.shape(position_sequence)[0] * tf.ones([1], dtype=tf.int32)
+        return [position_sequence, n_particles_per_example]
 
     def postprocess(self, prev, data, training=True, **kwargs):
         _pos, _vel, acc, feats, box, bfeats = data
         # # Use an Euler integrator to go from acceleration to position, assuming
         # # a dt=1 corresponding to the size of the finite difference.
-        last_position = _pos
-        last_delta_position = _vel * self.timestep
-
-        delta_position = last_delta_position + prev[:tf.shape(_pos)[0]]  # * dt = 1
-        new_position = last_position + delta_position  # * dt = 1
-
-        # 在此处插入您的数据后处理代码
-        self.pos_correction = new_position - last_position
-        vel = (self.pos_correction) / self.timestep
+        vel = _vel + prev * self.timestep
+        self.pos_correction = vel * self.timestep
+        new_position = _pos + self.pos_correction
         return new_position, vel
 
     # 其他函数如_build, _encoder_preprocessor, _decoder_postprocessor等保持不变
-    def _build(self, position_sequence, n_particles_per_example,
+    def _build(self, most_recent_position, most_recent_velocity, n_particles_per_example, box, bfeats,
                global_context=None, particle_types=None):
         """Produces a model step, outputting the next position for each particle.
 
         Args:
-          position_sequence: Sequence of positions for each node in the batch,
-            with shape [num_particles_in_batch, sequence_length, num_dimensions]
+          most_recent_position: Positions for each node in the batch,
+            with shape [num_particles_in_batch, num_dimensions]
+          most_recent_velocity: Velocities for each node in the batch,
+            with shape [num_particles_in_batch, num_dimensions]
           n_particles_per_example: Number of particles for each graph in the batch
             with shape [batch_size]
           global_context: Tensor of shape [batch_size, context_size], with global
@@ -163,21 +115,15 @@ class GNS(BaseModel):
           step into the future from the input sequence.
         """
         input_graphs_tuple = self._encoder_preprocessor(
-            position_sequence, n_particles_per_example, global_context,
-            particle_types)
+            most_recent_position, most_recent_velocity, n_particles_per_example, global_context,
+            particle_types, box=box, bfeats=bfeats)
 
-        normalized_acceleration = self._graph_network(input_graphs_tuple)
+        next_acceleration = self._graph_network(input_graphs_tuple)
 
-        next_position = self._decoder_postprocessor(
-            normalized_acceleration, position_sequence)
-
-        return next_position
+        return next_acceleration
 
     def _encoder_preprocessor(
-            self, position_sequence, n_node, global_context, particle_types):
-        # Extract important features from the position_sequence.
-        most_recent_position = position_sequence[:, -1]
-        velocity_sequence = time_diff(position_sequence)  # Finite-difference.
+            self, most_recent_position, most_recent_velocity, n_node, global_context, particle_types, box, bfeats):
 
         # Get connectivity of the graph.
         (senders, receivers, n_edge
@@ -187,12 +133,17 @@ class GNS(BaseModel):
         # Collect node features.
         node_features = []
 
-        # Normalized velocity sequence, merging spatial an time axis.
-        normalized_velocity_sequence = velocity_sequence
+        node_features.append(most_recent_velocity)
 
-        flat_velocity_sequence = merge_dims(normalized_velocity_sequence, start=1, size=2)
-
-        node_features.append(flat_velocity_sequence)
+        # Normalized clipped distances to lower and upper boundaries.
+        # boundaries are an array of shape [num_dimensions, 2], where the second
+        # axis, provides the lower/upper boundaries.
+        distance_to_lower_boundary = (most_recent_position - tf.reduce_min(box, keepdims=True, axis=0))
+        distance_to_upper_boundary = (tf.reduce_max(box, keepdims=True, axis=0) - most_recent_position)
+        distance_to_boundaries = tf.concat([distance_to_lower_boundary, distance_to_upper_boundary], axis=1)
+        normalized_clipped_distance_to_boundaries = tf.clip_by_value(
+            distance_to_boundaries / self._connectivity_radius, -1., 1.)
+        node_features.append(normalized_clipped_distance_to_boundaries)
 
         # Particle type.
         if self._num_particle_types > 1:
@@ -223,13 +174,6 @@ class GNS(BaseModel):
             senders=senders,
             receivers=receivers,
         )
-
-    def _decoder_postprocessor(self, normalized_acceleration, position_sequence):
-        # The model produces the output in normalized space so we apply inverse
-        # normalization.
-        acceleration = normalized_acceleration
-
-        return acceleration
 
     def loss_keys(self):
         return self.loss_fn.keys()
@@ -311,7 +255,9 @@ class EncodeProcessDecode(snt.Module):
         latent_graph_m = self._process(latent_graph_0)
 
         # Decode from the last latent graph.
-        return self._decode(latent_graph_m)
+        out = self._decode(latent_graph_m)
+
+        return out
 
     def _networks_builder(self):
         """Builds the networks."""
@@ -321,7 +267,7 @@ class EncodeProcessDecode(snt.Module):
                 hidden_size=self._mlp_hidden_size,
                 num_hidden_layers=self._mlp_num_hidden_layers,
                 output_size=self._latent_size)
-            return snt.Sequential([mlp, snt.LayerNorm(axis=slice(1, None), create_scale=True, create_offset=True)])
+            return snt.Sequential([mlp, snt.LayerNorm(axis=slice(2, None), create_scale=True, create_offset=True)])
 
         # The encoder graph network independently encodes edge and node features.
         encoder_kwargs = dict(
@@ -360,6 +306,9 @@ class EncodeProcessDecode(snt.Module):
 
         # Encode the node and edge features.
         latent_graph_0 = self._encoder_network(input_graph)
+        if tf.math.reduce_any(tf.math.is_nan(latent_graph_0.edges)):
+            raise ValueError
+
         return latent_graph_0
 
     def _process(
@@ -370,8 +319,7 @@ class EncodeProcessDecode(snt.Module):
         # (In the shared parameters case, just reuse the same `processor_network`)
         latent_graph_prev_k = latent_graph_0
         latent_graph_k = latent_graph_0
-        for k in range(len(self._processor_networks)):
-            processor_network_k = self._processor_networks[k]
+        for processor_network_k in self._processor_networks:
             latent_graph_k = self._process_step(
                 processor_network_k, latent_graph_prev_k)
             latent_graph_prev_k = latent_graph_k
@@ -409,7 +357,7 @@ def compute_connectivity_for_batch_pyfunc(
         [tf.int32, tf.int32, tf.int32])
     senders.set_shape([None])
     receivers.set_shape([None])
-    n_edge.set_shape(tf.shape(n_node))
+    n_edge.set_shape(n_node.get_shape())
     return senders, receivers, n_edge
 
 

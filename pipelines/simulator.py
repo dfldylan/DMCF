@@ -403,10 +403,8 @@ class Simulator(BasePipeline):
                         return pos, vel, pre, t + 1, loss
 
                     loss = tf.while_loop(
-                        lambda p, v, pr, t, l: t < tf.shape(time_w)[0], body, [
-                            in_pos[bi], in_vel[bi], pre[bi],
-                            tf.constant(0), loss
-                        ])[-1]
+                        lambda p, v, pr, t, l: t < tf.shape(time_w)[0], body,
+                        [in_pos[bi], in_vel[bi], pre[bi], tf.constant(0), loss])[-1]
                 loss_sum = tf.reduce_sum(loss.stack(), axis=0) / (
                     tf.reduce_sum(time_w) * len(data['pos']))
 
