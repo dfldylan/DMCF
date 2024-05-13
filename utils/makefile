@@ -7,9 +7,13 @@ install_dir = $(HOME)/.local/lib
 $(eval TF_CFLAGS := $(shell python -c 'import tensorflow as tf; print(" ".join(tf.sysconfig.get_compile_flags()))'))
 $(eval TF_LFLAGS := $(shell python -c 'import tensorflow as tf; print(" ".join(tf.sysconfig.get_link_flags()))'))
 
-all: tools
+all: setup tools
+
+setup:
+	mkdir -p $(install_dir)
+
 tools: tools/sampling_so.so tools/nn_distance_so.so tools/tf_approxmatch_so.so
-    rm -f tools/*.o
+	rm -f tools/*.o
 
 tools/sampling_so.so: tools/sampling.cu.o tools/sampling.cpp
 	g++ -std=c++14 tools/sampling.cpp tools/sampling.cu.o -o $(install_dir)/sampling_so.so -shared -fPIC $(TF_CFLAGS) $(TF_LFLAGS) -I$(cudainc) -lcudart -L$(cudalib) -O2

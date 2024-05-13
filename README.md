@@ -51,7 +51,7 @@ The pretrained models are in the ```checkpoints``` subfolder.
 Run a pretrained mode by setting the path to the checkpoint with the ```ckpt_path``` argument.
 For example:
 ```bash
-python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
+python run_pipeline.py --cfg_file WBC-SPH.yml \
                        --ckpt_path checkpoints/WBC-SPH/ckpt \
                        --split test
 ```
@@ -60,26 +60,26 @@ python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
 
 Simple 1D test run (data will be generated):
 ```bash
-python run_pipeline.py --cfg_file configs/column/hrnet.yml \
+python run_pipeline.py --cfg_file column/hrnet.yml \
                        --split train
 ```
 
 Run with 2D pipeline:
 ```bash
-python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
+python run_pipeline.py --cfg_file WBC-SPH.yml \
                        --split train
 ```
 
 Run with 3D pipeline:
 ```bash
-python run_pipeline.py --cfg_file configs/Liquid3d.yml \
+python run_pipeline.py --cfg_file Liquid3d.yml \
                        --split train
 ```
 
 ## Test
 
 ```bash
-python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
+python run_pipeline.py --cfg_file WBC-SPH.yml \
                        --split test \
                        --pipeline.data_generator.test.time_end 800 \
                        --pipeline.data_generator.valid.time_end 800 \
@@ -106,7 +106,7 @@ python utils/draw_sim2d.py PATH/TO/HDF5_FILE OUTPUT/PATH \
 ## Validation
 
 ```bash
-python run_pipeline.py --cfg_file configs/WBC-SPH.yml \
+python run_pipeline.py --cfg_file WBC-SPH.yml \
                        --split valid
 ```
 
