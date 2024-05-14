@@ -5,7 +5,7 @@ dataset:
   #cache_dir: ./logs/cache/
 
 model:
-  name: PolarNetG
+  name: SPHeroNet
 
   ckpt_path: # path to checkpoint
   particle_radii: [0.025]

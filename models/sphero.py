@@ -8,9 +8,9 @@ from utils.tools.neighbor import reduce_subarrays_sum_multi
 from .pbf_real import PBFReal
 
 
-class PolarConv(tf.keras.layers.Layer):
+class SPHeroConv(tf.keras.layers.Layer):
     def __init__(self, filters, radius_search_ignore_query_points=True, activation=None, **kwargs):
-        super(PolarConv, self).__init__(**kwargs)
+        super(SPHeroConv, self).__init__(**kwargs)
         self.out_dims = filters
         self.activation = activation
         self.fixed_radius_search = o3dml.layers.FixedRadiusSearch(ignore_query_point=radius_search_ignore_query_points)
@@ -65,9 +65,9 @@ class PolarConv(tf.keras.layers.Layer):
         return tf.nn.softmax(tf.einsum('nx,xio->nio', polar_coords, kernel), axis=1)
 
 
-class PolarNetG(PBFReal):
+class SPHeroNet(PBFReal):
     def __init__(self,
-                 name="PolarNetG",
+                 name="SPHeroNet",
                  timestep=0.02,
                  grav=-9.81,
                  rest_dens=1000.0,
@@ -175,7 +175,7 @@ class PolarNetG(PBFReal):
 
         if ignore_query_points is None:
             ignore_query_points = self.ignore_query_points
-        conv = PolarConv(
+        conv = SPHeroConv(
             name=name,
             activation=activation,
             radius_search_ignore_query_points=ignore_query_points,
@@ -190,7 +190,7 @@ class PolarNetG(PBFReal):
                    vel_corr=None,
                    tape=None,
                    **kwargs):
-        pos, vel, solid_masses = super(PolarNetG, self).preprocess(data, training, vel_corr, tape, **kwargs)
+        pos, vel, solid_masses = super(SPHeroNet, self).preprocess(data, training, vel_corr, tape, **kwargs)
         _pos, _vel, acc, feats, box, bfeats = data
         self.solid_masses = 1.2 * solid_masses
         #
@@ -303,7 +303,7 @@ class PolarNetG(PBFReal):
         self.densities, _ = self.compute_density_with_mass(group_position, group_masses, group_neighbors,
                                                            self.m_density0, self.query_radii)
 
-        # pos, vel = super(PolarNetG, self).postprocess(prev, data, training, vel_corr, **kwargs)
+        # pos, vel = super(SPHeroNet, self).postprocess(prev, data, training, vel_corr, **kwargs)
         return [pos, vel]
 
     def loss(self, results, data):

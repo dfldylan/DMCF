@@ -4,7 +4,7 @@ from .sym_net import SymNet
 from .cconv import CConv
 from .pointnet import PointNet
 from .polar_net import PolarNet
-from .polar_net_g import PolarNetG
+from .sphero import SPHeroNet
 from .pbf_real import PBFReal
 from .gns import GNS
 
