@@ -95,7 +95,7 @@ class SPHeroNet(PBFReal):
                  channels=16,
                  layer_channels=[48, 64, 64, 3],
                  out_scale=[0.01, 0.01, 0.01],
-                 window_dens='cubic',
+                 window_dens='poly6',
                  **kwargs):
 
         super().__init__(name=name,
@@ -127,8 +127,6 @@ class SPHeroNet(PBFReal):
         self.ignore_query_points = ignore_query_points
         self.layer_channels = layer_channels
         self.viscosity = viscosity
-
-        self.radius_search = o3dml.layers.FixedRadiusSearch(ignore_query_point=True)
 
         self._all_convs = []
 
@@ -214,7 +212,9 @@ class SPHeroNet(PBFReal):
         all_pos = tf.concat([pos, box], axis=0)
         self.all_pos = all_pos
         if self.dens_feats or self.pres_feats:
-            dens = compute_density(all_pos, all_pos, self.query_radii, win=get_window_func(self.window_dens))
+            dens = compute_density(all_pos, all_pos, self.query_radii,
+                                   mass=tf.stack([self.fluid_mass * tf.ones_like(pos[:, :1]), self.solid_masses],
+                                                 axis=0))
             if self.dens_feats:
                 fluid_feats.append(tf.expand_dims(dens[:tf.shape(pos)[0]], -1))
                 box_feats.append(tf.expand_dims(dens[tf.shape(pos)[0]:], -1))
@@ -223,7 +223,6 @@ class SPHeroNet(PBFReal):
                                         all_pos,
                                         dens,
                                         self.m_density0,
-                                        win=get_window_func(self.window_dens),
                                         stiffness=self.stiffness)
                 fluid_feats.append(tf.expand_dims(pres[:tf.shape(pos)[0]], -1))
                 box_feats.append(tf.expand_dims(pres[tf.shape(pos)[0]:], -1))
@@ -298,10 +297,8 @@ class SPHeroNet(PBFReal):
         _pos, _vel, acc, feats, box, bfeats = data
 
         group_position = tf.concat([pos, box], axis=0)
-        group_neighbors = self.radius_search(group_position, pos, self.query_radii)
         group_masses = tf.concat([self.fluid_mass * tf.ones_like(pos[:, 0]), self.solid_masses], axis=0)
-        self.densities, _ = self.compute_density_with_mass(group_position, group_masses, group_neighbors,
-                                                           self.m_density0, self.query_radii)
+        self.densities = compute_density(pos, group_position, self.query_radii, mass=group_masses)
 
         # pos, vel = super(SPHeroNet, self).postprocess(prev, data, training, vel_corr, **kwargs)
         return [pos, vel]

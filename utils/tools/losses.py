@@ -301,7 +301,7 @@ def get_dilated_pos(pos,
     return dilated_pos, pcnt, idx
 
 
-def compute_density(out_pos, in_pos=None, radius=0.005, win=None):
+def compute_density(out_pos, in_pos=None, radius=0.005, win=get_window_func('poly6'), mass=None, nns=None):
     if in_pos is None:
         in_pos = out_pos
 
@@ -310,9 +310,11 @@ def compute_density(out_pos, in_pos=None, radius=0.005, win=None):
         win = lambda x: x
 
     radius = tf.convert_to_tensor(radius)
-    fixed_radius_search = ml3d.layers.FixedRadiusSearch()
-    neighbors_index, neighbors_row_splits, dist = fixed_radius_search(
-        in_pos, out_pos, radius)
+    if nns is not None:
+        neighbors_index, neighbors_row_splits, dist = nns
+    else:
+        fixed_radius_search = ml3d.layers.FixedRadiusSearch()
+        neighbors_index, neighbors_row_splits, dist = fixed_radius_search(in_pos, out_pos, radius)
 
     neighbors = tf.RaggedTensor.from_row_splits(
         values=tf.gather(in_pos, neighbors_index),
@@ -321,7 +323,13 @@ def compute_density(out_pos, in_pos=None, radius=0.005, win=None):
     dist = neighbors - tf.expand_dims(out_pos, axis=1)
     # dist = tf.expand_dims(out_pos, axis=0) - tf.expand_dims(out_pos, axis=1)
     dist = tf.reduce_sum(dist ** 2, axis=-1) / radius ** 2
-    dens = tf.reduce_sum(win(dist), axis=-1)
+    if mass is None:
+        dens = tf.reduce_sum(win(dist), axis=-1)
+    else:
+        neighbors_mass = tf.RaggedTensor.from_row_splits(
+            values=tf.gather(mass, neighbors_index),
+            row_splits=neighbors_row_splits)
+        dens = tf.reduce_sum(win(dist) * neighbors_mass, axis=-1)
     return dens
 
 
@@ -386,7 +394,7 @@ def compute_pressure(out_pts,
                      dens=None,
                      rest_dens=3.5,
                      stiffness=20.0,
-                     win=None):
+                     win=get_window_func('poly6')):
     if inp_pts is None:
         inp_pts = out_pts
     dens = compute_density(out_pts, inp_pts, win=win) if dens is None else dens

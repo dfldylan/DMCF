@@ -93,8 +93,8 @@ class PBFReal(BaseModel):
         while True:
             group_position = tf.concat([pos, box], axis=0)
             # calculate density and lagrange multiplier
-            density, density_err = self.compute_density_with_mass(group_position, group_masses, group_neighbors,
-                                                                  self.m_density0, self.query_radii)
+            density = compute_density(pos, group_position, self.query_radii, mass=group_masses,nns=group_neighbors)
+            density_err = tf.clip_by_value(density - self.m_density0, 0, tf.float32.max)
             m_lambda = self.compute_lagrange_multiplier(group_position, group_masses, group_neighbors, density_err,
                                                         self.m_density0, self.query_radii)
             # self.m_lambda, self.m_density = m_lambda, m_density

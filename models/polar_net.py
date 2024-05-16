@@ -288,8 +288,7 @@ class PolarNet(PBFReal):
         group_position = tf.concat([pos, box], axis=0)
         group_neighbors = self.radius_search(group_position, pos, self.query_radii)
         group_masses = tf.concat([self.fluid_mass * tf.ones_like(pos[:, 0]), self.solid_masses], axis=0)
-        self.densities, _ = self.compute_density_with_mass(group_position, group_masses, group_neighbors,
-                                                           self.m_density0, self.query_radii)
+        self.densities = compute_density(pos, group_position, self.query_radii, mass=group_masses, nns=group_neighbors)
 
         # pos, vel = super(PolarNet, self).postprocess(prev, data, training, vel_corr, **kwargs)
         return [pos, vel]

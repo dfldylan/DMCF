@@ -282,23 +282,9 @@ class BaseModel(ABC, tf.keras.Model):
         return pos, vel
 
     def calculate_boundary_mass(self, box, query_radii, rest_dens):
-        win = get_window_func("cubic", fac=6.0 / (np.pi * query_radii ** 3))
-        dens = compute_density(box, radius=query_radii, win=win)
+        dens = compute_density(box, radius=query_radii)
         box_masses = rest_dens / dens
         return box_masses
-
-    def compute_density_with_mass(self, pos, mass, neighbors, density0, radius):
-        win = get_window_func("cubic", fac=6.0 / (np.pi * radius ** 3))
-        neighbors_index, neighbors_row_splits, _ = neighbors
-        neighbors_count = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
-        pos_repeat = tf.repeat(pos[:tf.shape(neighbors_count)[0]], neighbors_count, axis=0)
-        pos_gather = tf.gather(pos, neighbors_index)
-        neighbors_distance = tf.reduce_sum(tf.square(pos_repeat - pos_gather), axis=-1)
-        density = tf.gather(mass, neighbors_index) * win(neighbors_distance / radius ** 2)
-        density = reduce_subarrays_sum_multi(density, neighbors_row_splits)
-        density += mass[:tf.shape(density)[0]] * win(0.0)
-        density_err = tf.clip_by_value(density - density0, 0, tf.float32.max)
-        return density, density_err
 
     def compute_lagrange_multiplier(self, position, mass, neighbors, density_err, density0, radius, eps=1.0e-6):
         win = get_window_func("cubic_grad", fac=6.0 / (np.pi * radius ** 3))
