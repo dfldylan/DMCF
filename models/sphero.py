@@ -1,6 +1,6 @@
 import tensorflow as tf
 from scipy.spatial import cKDTree
-import open3d.ml.tf as o3dml
+import open3d.ml.tf as ml3d
 import numpy as np
 from utils.tools.losses import get_window_func, compute_density, compute_pressure
 from utils.tools.neighbor import reduce_subarrays_sum_multi
@@ -9,60 +9,84 @@ from .pbf_real import PBFReal
 
 
 class SPHeroConv(tf.keras.layers.Layer):
-    def __init__(self, filters, radius_search_ignore_query_points=True, activation=None, **kwargs):
+    def __init__(
+            self,
+            filters,
+            activation=None,
+            use_bias=True,
+            radius_search_ignore_query_points=True,
+            **kwargs):
         super(SPHeroConv, self).__init__(**kwargs)
-        self.out_dims = filters
-        self.activation = activation
-        self.fixed_radius_search = o3dml.layers.FixedRadiusSearch(ignore_query_point=radius_search_ignore_query_points)
+        self.filters = filters
+        self.activation = tf.keras.activations.get(activation)  # Ensure activation is a Keras activation function
+        self.use_bias = use_bias
+        self.radius_search_ignore_query_points = radius_search_ignore_query_points
+        self.fixed_radius_search = ml3d.layers.FixedRadiusSearch(ignore_query_point=radius_search_ignore_query_points,dtype=tf.int32)
 
-    def build(self, inp_features_shape):
-        # 创建权重矩阵，这里假设权重是可学习的
-        self.kernel = self.add_weight("kernel", shape=[4, inp_features_shape[-1], self.out_dims])
+    def build(self, input_shape):
+        self.in_channels = input_shape[-1]
+        self.kernel = self.add_weight(
+            name="kernel",
+            shape=[4, self.in_channels, self.filters],
+            initializer='glorot_uniform',
+            trainable=True
+        )
+        if self.use_bias:
+            self.bias = self.add_weight(
+                name="bias",
+                shape=[self.filters],
+                initializer='zeros',
+                trainable=True
+            )
 
-    def call(self, inp_features, inp_positions, out_positions, extents):
-        # 这里我们只是简单地计算每个输出点的邻居
-        # 您可能需要定义一个更复杂的函数来找到正确的邻居
-        nns = self.fixed_radius_search(inp_positions, out_positions, extents)
-        neighbors_index, neighbors_row_splits, _ = nns
-        neighbors_index = tf.cast(neighbors_index, tf.int32)
+    def call(self,
+             input_features,  # [N_in, 3]
+             input_positions,
+             output_positions,
+             extents):
+        neighbors = self.fixed_radius_search(input_positions, output_positions, extents)
+        neighbors_index, neighbors_row_splits, _ = neighbors
+        # neighbors_index = tf.cast(neighbors_index, tf.int32)
         neighbors_row_splits = tf.cast(neighbors_row_splits, tf.int32)
         # 获取每个query点的邻居数
         neighbors_counts = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
-        # 对query进行扩展以匹配neighbors_index的形状
-        expanded_query = tf.repeat(out_positions, neighbors_counts, axis=0)
-        # 确保diff的维度和xyz对应
-        diff = tf.gather(inp_positions, neighbors_index) - expanded_query
+        expanded_query = tf.repeat(output_positions, neighbors_counts, axis=0)
+        difference = tf.gather(input_positions, neighbors_index) - expanded_query  # [_, 3]
 
-        # 这里我们只是简单地计算极坐标和权重
-        # 您可能需要定义一个更复杂的函数来计算正确的极坐标和权重
-        polar_coords = self.cartesian_to_polar(diff, extents)  # [N, 4]
-        # weights = self.calculate_weights(polar_coords, self.kernel)  # [N, in, out]
-        # 使用tf.gather收集输入特征
-        # inp_features_gather = tf.gather(inp_features, neighbors_index)  # [N, in_dims]
-        # 使用einsum一步完成乘法和求和操作
-        weighted_features = tf.einsum('nx,xio,ni->no', polar_coords, self.kernel,
-                                      tf.gather(inp_features, neighbors_index))  # [N, out]
-        # 如果需要，再进行额外的reduce操作
-        out_features = reduce_subarrays_sum_multi(weighted_features, neighbors_row_splits)
+        # 计算极坐标和权重
+        spherical_coords = self.cartesian_to_spherical(difference, extents)  # [_, 4]
+        kernel = tf.tensordot(spherical_coords, self.kernel, axes=1)  # [_, C_in, C_out]
+
+        neighbors_feats = tf.gather(input_features, neighbors_index)  # [_, C_in]
+        out = tf.reduce_sum(tf.expand_dims(neighbors_feats, axis=-1) * kernel, axis=1)  # [_, C_out]
+        out_features = reduce_subarrays_sum_multi(out, neighbors_row_splits)  # [N_out, C_out]
+
+        if self.use_bias:
+            out_features += self.bias
 
         if self.activation:
             out_features = self.activation(out_features)
-        return out_features, nns
 
-    def cartesian_to_polar(self, cartesian_coords, extents):
-        # 这是一个简单的从笛卡尔坐标到极坐标的转换
-        # 您可能需要根据实际情况修改这个函数
-        r = tf.norm(cartesian_coords, axis=-1)
-        cartesian_coords_normalized = cartesian_coords / r[..., tf.newaxis]
-        sin_theta = cartesian_coords_normalized[..., 0]
-        cos_theta = cartesian_coords_normalized[..., 2]
-        cos_phi = cartesian_coords_normalized[..., 1]
-        # Weighted feature
-        r_normalized = r / extents  # 防止除以零
-        return tf.stack([r_normalized, sin_theta, cos_theta, cos_phi], axis=-1)
+        return out_features, neighbors
 
-    def calculate_weights(self, polar_coords, kernel):
-        return tf.nn.softmax(tf.einsum('nx,xio->nio', polar_coords, kernel), axis=1)
+    def cartesian_to_spherical(self, cartesian_coords, extents=1):
+        # 计算径向距离 r
+        r_plane_2 = cartesian_coords[..., 0] ** 2 + cartesian_coords[..., 1] ** 2
+        r_2 = r_plane_2 + cartesian_coords[..., 2] ** 2
+
+        # 防止除以零
+        r_safe = tf.maximum(tf.sqrt(r_2), 1e-10)
+        # 计算 cos(phi) 和 sin(theta), cos(theta)
+        cos_phi = cartesian_coords[..., 2] / r_safe
+
+        r_plane_safe = tf.maximum(tf.sqrt(r_plane_2), 1e-10)
+        sin_theta = cartesian_coords[..., 1] / r_plane_safe
+        cos_theta = cartesian_coords[..., 0] / r_plane_safe
+
+        # 标准化径向距离
+        r_normalized = r_safe / extents
+
+        return tf.stack([r_normalized, cos_phi, sin_theta, cos_theta], axis=-1)
 
 
 class SPHeroNet(PBFReal):
@@ -92,8 +116,7 @@ class SPHeroNet(PBFReal):
                  dens_feats=False,
                  pres_feats=False,
                  stiffness=20.0,
-                 channels=16,
-                 layer_channels=[48, 64, 64, 3],
+                 layer_channels=[32, 64, 64, 3],
                  out_scale=[0.01, 0.01, 0.01],
                  window_dens='poly6',
                  **kwargs):
@@ -109,7 +132,7 @@ class SPHeroNet(PBFReal):
                          viscosity=viscosity,
                          window_dens=window_dens,
                          **kwargs)
-        self.query_radii = particle_radii[0] * 3 if query_radii is None else query_radii
+        self.query_radii = particle_radii[0] * 2 if query_radii is None else query_radii
         diameter = 2.0 * particle_radii[0]
         volume = diameter ** 3
         self.fluid_mass = volume * self.m_density0
@@ -123,7 +146,7 @@ class SPHeroNet(PBFReal):
         self.pres_feats = pres_feats
         self.stiffness = stiffness
         self.out_scale = tf.constant(out_scale)
-        self.channels = channels
+        self.channels = layer_channels[0]
         self.ignore_query_points = ignore_query_points
         self.layer_channels = layer_channels
         self.viscosity = viscosity
@@ -131,39 +154,34 @@ class SPHeroNet(PBFReal):
         self._all_convs = []
 
         self.fluid_convs = self.get_cconv(name='fluid_obs',
-                                          filters=channels,
+                                          filters=self.channels,
                                           activation=None)
 
-        self.fluid_dense = tf.keras.layers.Dense(units=channels,
+        self.fluid_dense = tf.keras.layers.Dense(units=self.channels,
                                                  name="fluid_dense",
                                                  activation=None)
 
         self.obs_convs = self.get_cconv(name='obs_conv',
-                                        filters=channels,
+                                        filters=self.channels,
                                         activation=None)
 
-        self.obs_dense = tf.keras.layers.Dense(units=channels,
+        self.obs_dense = tf.keras.layers.Dense(units=self.channels,
                                                name="obs_dense",
                                                activation=None)
 
-        self.layers_ops = [None]
+        self.convs = []
+        self.denses = []
         for i in range(1, len(self.layer_channels)):
-            layer_ops = dict()
             ch = self.layer_channels[i]
-            if i != 1 and i != len(self.layer_channels) - 1:
-                ch = int(self.layer_channels[i] / 2)
-            if i != len(self.layer_channels) - 1:
-                conv = self.get_cconv(name='conv{0}'.format(i),
-                                      filters=ch,
-                                      activation=None,
-                                      ignore_query_points=self.ignore_query_points)
-                layer_ops['conv'] = conv
-            if i != 1:
-                dense = tf.keras.layers.Dense(units=ch,
-                                              name="dense{0}".format(i),
-                                              activation=None)
-                layer_ops['dense'] = dense
-            self.layers_ops.append(layer_ops)
+            conv = self.get_cconv(name='conv{0}'.format(i),
+                                  filters=ch,
+                                  activation=None,
+                                  ignore_query_points=self.ignore_query_points)
+            self.convs.append(conv)
+            dense = tf.keras.layers.Dense(units=ch,
+                                          name="dense{0}".format(i),
+                                          activation=None)
+            self.denses.append(dense)
 
     def get_cconv(self,
                   name,
@@ -254,22 +272,22 @@ class SPHeroNet(PBFReal):
         _pos, _vel, acc, _feats, box, bfeats = data
         # feats = feats[:tf.shape(pos)[0]]
 
-        ans_convs = [feats]  # [channels*3]
-        for i in range(1, len(self.layers_ops)):
-            conv = self.layers_ops[i].get('conv', None)
-            dense = self.layers_ops[i].get('dense', None)
+        ans_convs = [feats]  # [self.channels*3]
+        first = True
+        for conv, dense in zip(self.convs, self.denses):
             feats = tf.keras.activations.relu(ans_convs[-1])
-            ans = []
-            if conv is not None:
-                if i == 1:
-                    ans_conv, _ = conv(feats, self.all_pos, pos, self.query_radii)
-                else:
-                    ans_conv, self.fluid_nns = conv(feats, pos, pos, self.query_radii)
-                ans.append(ans_conv)
-            if dense is not None:
+            # ans = []
+            if first:
+                ans_conv, _ = conv(feats, self.all_pos, pos, self.query_radii)
+                ans_dense = dense(feats[:tf.shape(pos)[0]])
+                first = False
+            else:
+                ans_conv, _ = conv(feats, pos, pos, self.query_radii)
                 ans_dense = dense(feats)
-                ans.append(ans_dense)
-            ans = tf.concat(ans, axis=-1)
+            if ans_dense[-1].shape[-1] == ans_convs[-1].shape[-1]:
+                ans = ans_conv + ans_dense + ans_convs[-1]
+            else:
+                ans = ans_conv + ans_dense
             ans_convs.append(ans)
 
         out = ans_convs[-1]
@@ -323,17 +341,7 @@ class SPHeroNet(PBFReal):
         for n, l in self.loss_fn.items():
             loss[n] = l(target,
                         pos,
-                        target_vel=target_vel,
-                        pred_vel=vel,
-                        pred_dens=self.densities,
-                        density0=self.m_density0,
                         pre_steps=data[3],
                         num_fluid_neighbors=num_fluid_neighbors,
-                        num_solid_neighbors=num_solid_neighbors,
-                        input=data[0],
-                        target_prev=data[2],
-                        pos_correction=self.pos_correction)
+                        num_solid_neighbors=num_solid_neighbors)
         return loss
-
-    def loss_keys(self):
-        return self.loss_fn.keys()

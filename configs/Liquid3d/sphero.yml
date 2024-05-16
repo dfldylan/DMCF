@@ -1,7 +1,7 @@
 dataset:
   name: CConvData3D
 
-  dataset_path: /workdir/datasets/CConvData3D # path to dataset
+  dataset_path: /workdir/_datasets/CCONV/ours_default_data # path to dataset
   #cache_dir: ./logs/cache/
 
 model:
@@ -13,7 +13,6 @@ model:
   grav: -9.81
   out_scale: [0.0078125, 0.0078125, 0.0078125] 
   rest_dens: 1000.0
-  channels: 16
 
   #transformation:
   #  grav_eqvar: [0, -1, 0]
