@@ -293,14 +293,15 @@ class Simulator(BasePipeline):
     def run_train(self):
         model = self.model
         dataset = self.dataset
-
         cfg = self.cfg
 
+        # 设置日志文件路径
         timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-        log_file_path = join(cfg.logs_dir, 'log_train_' + timestamp + '.txt')
-        log.info("Logging in file : {}".format(log_file_path))
+        log_file_path = join(cfg.logs_dir, f'log_train_{timestamp}.txt')
+        log.info(f"Logging in file: {log_file_path}")
         log.addHandler(logging.FileHandler(log_file_path))
 
+        # 获取训练数据加载器
         train_loader = get_dataloader(dataset.train,
                                       batch_size=cfg.batch_size,
                                       pre_frames=cfg.max_warm_up[0],
@@ -309,209 +310,179 @@ class Simulator(BasePipeline):
                                       max_window=cfg.windows[-1],
                                       **cfg.data_generator,
                                       **cfg.data_generator.train)
-        # wait for dataloader
-        time.sleep(10)
 
         self.optimizer = model.get_optimizer(cfg.optimizer)
-
         is_resume = model.cfg.get('is_resume', True)
-        start_ep = self.load_ckpt(model.cfg.ckpt_path, is_resume=is_resume)
+        start_epoch = self.load_ckpt(model.cfg.ckpt_path, is_resume=is_resume)
 
-        log.info("Writing summary in {}.".format(self.tensorboard_dir))
+        log.info(f"Writing summary in {self.tensorboard_dir}.")
 
         # @tf.function(experimental_relax_shapes=True)
-        def train(data, time_w, it=0, max_err=None, max_dens_err=None):
-            loss = []
+        def train(data, time_weights, iterations=0, max_err=None, max_dens_err=None):
+            in_positions, in_velocities = [], []
+            pre_steps = []
 
-            # warmup
-            in_pos, in_vel = [], []
-            pre = []
-            for bi in range(len(data['pos'])):
-                acc = data["grav"][bi][0]
-                pr_pos = data["pos"][bi][0]
-                pr_vel = data["vel"][bi][0]
+            # 预热阶段
+            for batch_index in range(len(data['pos'])):
+                acc = data["grav"][batch_index][0]
+                pr_pos = data["pos"][batch_index][0]
+                pr_vel = data["vel"][batch_index][0]
 
-                p = 0
+                step = 0
                 prev_err, prev_dens_err = 0.0, 0.0
-                for p in range(data['pre'][bi]):
-                    inputs = (pr_pos, pr_vel, acc, None, data["box"][bi][0],
-                              data["box_normals"][bi][0])
+                for step in range(data['pre'][batch_index]):
+                    inputs = (pr_pos, pr_vel, acc, None,
+                              data["box"][batch_index][0], data["box_normals"][batch_index][0])
                     pos, vel = model(inputs, training=False)
 
                     if max_err is not None:
-                        err = tf.reduce_max(
-                            tf.reduce_sum(tf.abs(pos - data["pos"][bi][p]),
-                                          axis=-1))
-                        if p > 0 and err > prev_err and err > max_err:
+                        err = tf.reduce_max(tf.reduce_sum(tf.abs(pos - data["pos"][batch_index][step]), axis=-1))
+                        if step > 0 and err > prev_err and err > max_err:
                             break
                         prev_err = err
 
                     if max_dens_err is not None:
                         err = density_loss(
                             pos,
-                            data["pos"][bi][p],
-                            tf.concat([pos, data["box"][bi][0]], axis=0),
-                            tf.concat([data["pos"][bi][p], data["box"][bi][0]],
-                                      axis=0),
+                            data["pos"][batch_index][step],
+                            tf.concat([pos, data["box"][batch_index][0]], axis=0),
+                            tf.concat([data["pos"][batch_index][step], data["box"][batch_index][0]], axis=0),
                             radius=model.particle_radii[0],
                             win=get_window_func(model.window_dens),
                             use_max=True)
 
-                        if p > 0 and err > prev_dens_err and err > max_dens_err:
+                        if step > 0 and err > prev_dens_err and err > max_dens_err:
                             break
                         prev_dens_err = err
 
                     pr_pos, pr_vel = pos, vel
-                pre.append(p)
-                in_pos.append(pr_pos)
-                in_vel.append(pr_vel)
+                pre_steps.append(step)
+                in_positions.append(pr_pos)
+                in_velocities.append(pr_vel)
 
             with tf.GradientTape() as tape:
-                loss = tf.TensorArray(tf.float32,
-                                      size=tf.shape(time_w)[0] *
-                                           len(data['pos']),
-                                      dynamic_size=True,
-                                      clear_after_read=False)
-                inputs = []
-                for bi in range(len(data['pos'])):
+                loss_tensor_array = tf.TensorArray(tf.float32, size=tf.shape(time_weights)[0] * len(data['pos']),
+                                                   dynamic_size=True, clear_after_read=False)
 
-                    def body(pos, vel, pre, t, loss):
-                        inputs = [
-                            pos, vel, data["grav"][bi][0], None,
-                            data["box"][bi][0], data["box_normals"][bi][0]
-                        ]
-                        target = data["pos"][bi]
-                        target_vel = data["vel"][bi]
+                def train_step(pos, vel, pre, t, loss_array):
+                    inputs = [pos, vel, data["grav"][batch_index][0], None,
+                              data["box"][batch_index][0], data["box_normals"][batch_index][0]]
+                    target_pos = data["pos"][batch_index]
+                    target_vel = data["vel"][batch_index]
+
+                    loss_list = []
+                    for _ in range(iterations):
                         pos, vel = model(inputs, training=True)
-                        l = []
-                        l.append(
-                            model.loss([pos, vel], [
-                                inputs, target[t + pre + 1], target[t + pre],
-                                pre, target_vel[t + pre + 1], target_vel[t + pre]
-                            ]))
-                        for _ in range(1, it):
-                            pos, vel = model(inputs, vel, training=True)
-                            l.append(
-                                model.loss([pos, vel], [
-                                    inputs, target[t + pre + 1],
-                                    target[t + pre], pre, target_vel[t + pre + 1], target_vel[t + pre]
-                                ]))
+                        loss_list.append(model.loss([pos, vel],
+                                                    [inputs, target_pos[t + pre + 1], target_pos[t + pre], pre,
+                                                     target_vel[t + pre + 1], target_vel[t + pre]]))
 
-                        l = merge_dicts(l, lambda x, y: x + y / len(l))
-                        loss = loss.write(
-                            t + bi * tf.shape(time_w)[0],
-                            tf.convert_to_tensor(list(l.values())) * time_w[t])
-                        return pos, vel, pre, t + 1, loss
+                    merged_loss = merge_dicts(loss_list, lambda x, y: x + y / len(loss_list))
+                    loss_array = loss_array.write(t + batch_index * tf.shape(time_weights)[0],
+                                                  tf.convert_to_tensor(list(merged_loss.values())) * time_weights[t])
+                    return pos, vel, pre, t + 1, loss_array
 
-                    loss = tf.while_loop(
-                        lambda p, v, pr, t, l: t < tf.shape(time_w)[0], body,
-                        [in_pos[bi], in_vel[bi], pre[bi], tf.constant(0), loss])[-1]
-                loss_sum = tf.reduce_sum(loss.stack(), axis=0) / (
-                        tf.reduce_sum(time_w) * len(data['pos']))
+                for batch_index in range(len(data['pos'])):
+                    loss_tensor_array = tf.while_loop(
+                        lambda pos, vel, pre, t, loss_array: t < tf.shape(time_weights)[0],
+                        train_step,
+                        [in_positions[batch_index], in_velocities[batch_index], pre_steps[batch_index], tf.constant(0),
+                         loss_tensor_array]
+                    )[-1]
+                total_loss = tf.reduce_sum(loss_tensor_array.stack(), axis=0) / (
+                        tf.reduce_sum(time_weights) * len(data['pos']))
 
-                w_decay = cfg.get("w_decay", 0)
-                if w_decay > 0:
-                    loss_sum += w_decay * tf.reduce_sum(
-                        [tf.reduce_sum(w ** 2) for w in model.trainable_weights])
+                weight_decay = cfg.get("w_decay", 0)
+                if weight_decay > 0:
+                    total_loss += weight_decay * tf.reduce_sum(
+                        [tf.reduce_sum(weight ** 2) for weight in model.trainable_weights])
 
-                grads = tape.gradient(loss_sum, model.trainable_weights)
+                gradients = tape.gradient(total_loss, model.trainable_weights)
 
-                norm = cfg.get('grad_clip_norm', -1)
-                if norm > 0:
-                    grads = [tf.clip_by_norm(g, norm) for g in grads]
+                grad_clip_norm = cfg.get('grad_clip_norm', -1)
+                if grad_clip_norm > 0:
+                    gradients = [tf.clip_by_norm(grad, grad_clip_norm) for grad in gradients]
 
-                self.optimizer.apply_gradients(
-                    zip(grads, model.trainable_weights))
+                self.optimizer.apply_gradients(zip(gradients, model.trainable_weights))
 
-            return loss_sum, pre
+            return total_loss, pre_steps
 
-        window_it, warm_up_it, it_idx = 0, 0, 0
+        window_idx, warmup_idx, iteration_idx = 0, 0, 0
         log.info("Started training")
-        for epoch in range(start_ep, cfg.max_epoch + 1):
-            log.info(f'=== EPOCH {epoch:d}/{cfg.max_epoch:d} ===')
+
+        for epoch in range(start_epoch, cfg.max_epoch + 1):
+            log.info(f'=== EPOCH {epoch}/{cfg.max_epoch} ===')
             process_bar = tqdm(range(cfg.iter), desc='training')
-            for i in process_bar:
-                step = epoch * cfg.iter + i
+            for iteration in process_bar:
+                step = epoch * cfg.iter + iteration
 
-                while window_it < min(len(cfg.windows), len(cfg.window_bnds)
-                                      ) and step >= cfg.window_bnds[window_it]:
-                    window_it += 1
+                while window_idx < min(len(cfg.windows), len(cfg.window_bnds)) and step >= cfg.window_bnds[window_idx]:
+                    window_idx += 1
                     train_loader = get_dataloader(
                         dataset.train,
                         batch_size=cfg.batch_size,
-                        pre_frames=cfg.max_warm_up[warm_up_it],
-                        window=cfg.windows[window_it],
+                        pre_frames=cfg.max_warm_up[warmup_idx],
+                        window=cfg.windows[window_idx],
                         **cfg.data_generator,
                         **cfg.data_generator.train)
                     time.sleep(10)
 
-                while warm_up_it < min(
-                        len(cfg.max_warm_up), len(cfg.warm_up_bnds)
-                ) and step >= cfg.warm_up_bnds[warm_up_it]:
-                    warm_up_it += 1
+                while warmup_idx < min(len(cfg.max_warm_up), len(cfg.warm_up_bnds)) and step >= cfg.warm_up_bnds[
+                    warmup_idx]:
+                    warmup_idx += 1
                     train_loader = get_dataloader(
                         dataset.train,
                         batch_size=cfg.batch_size,
-                        pre_frames=cfg.max_warm_up[warm_up_it],
-                        window=cfg.windows[window_it],
+                        pre_frames=cfg.max_warm_up[warmup_idx],
+                        window=cfg.windows[window_idx],
                         **cfg.data_generator,
                         **cfg.data_generator.train)
                     time.sleep(10)
 
-                while it_idx < min(len(cfg.iterations), len(
-                        cfg.its_bnds)) and step >= cfg.its_bnds[it_idx]:
-                    it_idx += 1
+                while (iteration_idx < min(len(cfg.iterations), len(cfg.its_bnds)) and
+                       step >= cfg.its_bnds[iteration_idx]):
+                    iteration_idx += 1
 
                 data_fetch_start = time.time()
                 data = next(train_loader)
 
-                time_w = np.ones((np.min([
-                    d.shape[0] - 1 - p
-                    for d, p in zip(data['pos'], data['pre'])
-                ])),
-                    dtype=np.float32)
-                if window_it > 0:
-                    a = (step - cfg.window_bnds[window_it - 1] +
-                         1) / cfg.time_blend
-                    if a < 1.0 and len(time_w) >= cfg.windows[window_it]:
-                        diff = cfg.windows[window_it] - cfg.windows[window_it -
-                                                                    1]
-                        time_w[-diff:] = np.clip(a - np.arange(diff) / diff,
-                                                 0.0, 1.0)
-                time_w = tf.convert_to_tensor(list(time_w))
-                tcnt = tf.cast(tf.math.ceil(tf.reduce_sum(time_w)), tf.int32)
+                time_weights = np.ones((np.min([d.shape[0] - 1 - p for d, p in zip(data['pos'], data['pre'])])),
+                                       dtype=np.float32)
+                if window_idx > 0:
+                    alpha = (step - cfg.window_bnds[window_idx - 1] + 1) / cfg.time_blend
+                    if alpha < 1.0 and len(time_weights) >= cfg.windows[window_idx]:
+                        diff = cfg.windows[window_idx] - cfg.windows[window_idx - 1]
+                        time_weights[-diff:] = np.clip(alpha - np.arange(diff) / diff, 0.0, 1.0)
+                time_weights = tf.convert_to_tensor(list(time_weights))
+                timestep_count = tf.cast(tf.math.ceil(tf.reduce_sum(time_weights)), tf.int32)
 
                 data_fetch_latency = time.time() - data_fetch_start
-                self.log_scalar_every_n_minutes(self.writer, step, 5,
-                                                'DataLatency',
-                                                data_fetch_latency)
+                self.log_scalar_every_n_minutes(self.writer, step, 5, 'DataLatency', data_fetch_latency)
 
-                loss_l, pre = train(data, time_w, cfg.iterations[it_idx],
-                                    cfg.get('max_err', None),
-                                    cfg.get('max_dens_err', None))
+                loss, pre_steps = train(data, time_weights, cfg.iterations[iteration_idx],
+                                        cfg.get('max_err', None), cfg.get('max_dens_err', None))
 
-                if i == 0 and epoch == start_ep:
+                if iteration == 0 and epoch == start_epoch:
                     self.log_param_count()
 
-                loss = {}
+                loss_values = {}
                 desc = "training -"
-                for l, v in zip(model.loss_keys(), loss_l):
-                    desc += " %s: %.05f" % (l, v.numpy())
-                    loss[l] = v.numpy()
-                loss["loss"] = np.sum(loss_l)
-                desc += " > loss: %.05f" % loss["loss"]
+                for loss_key, loss_val in zip(model.loss_keys(), loss):
+                    desc += f" {loss_key}: {loss_val.numpy():.05f}"
+                    loss_values[loss_key] = loss_val.numpy()
+                total_loss = np.sum(loss)
+                desc += f" > loss: {total_loss:.05f}"
 
-                loss["timesteps"] = np.minimum(
-                    tf.reduce_sum(time_w).numpy(), tcnt.numpy())
-                loss["warmup"] = tf.reduce_mean(data['pre'])
-                loss["warmup_diff"] = tf.reduce_mean(
-                    tf.convert_to_tensor(data['pre']) -
-                    tf.convert_to_tensor(pre))
+                loss_values["loss"] = total_loss
+                loss_values["timesteps"] = np.minimum(tf.reduce_sum(time_weights).numpy(), timestep_count.numpy())
+                loss_values["warmup"] = tf.reduce_mean(data['pre'])
+                loss_values["warmup_diff"] = tf.reduce_mean(
+                    tf.convert_to_tensor(data['pre']) - tf.convert_to_tensor(pre_steps))
 
                 process_bar.set_description(desc)
                 process_bar.refresh()
 
-                self.save_logs(self.writer, step, [loss], "train")
+                self.save_logs(self.writer, step, [loss_values], "train")
 
             if epoch % cfg.save_ckpt_freq == 0:
                 self.save_ckpt(epoch)

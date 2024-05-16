@@ -203,14 +203,6 @@ class PBFNet(BaseModel):
         self._all_convs.append((name, conv))
         return conv
 
-    def _integrate_pos_vel(self, pos1, vel1, acc1=None):
-        """Apply gravity and integrate position and velocity"""
-        dt = self.timestep
-        vel2 = vel1 + dt * (acc1 if acc1 is not None else tf.constant(
-            [0, self.grav, 0]))
-        pos2 = pos1 + dt * vel1 + (vel1 + vel2) / 2
-        return pos2, vel2
-
     def preprocess(self,
                    data,
                    training=True,

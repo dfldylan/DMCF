@@ -7,42 +7,43 @@ from functools import partial
 
 def get_window_func(typ, fac=1.0, **kwargs):
     if typ == "poly6":
-
         def func(q):
             return fac * tf.clip_by_value((1 - q) ** 3, 0, 1)
-    elif typ == "cubic":  # fac = 6.0 / (np.pi * h**3)
 
+    elif typ == "cubic":  # fac = 6.0 / (np.pi * h**3)
         def func(q):
             q_sqrt = tf.sqrt(q)
-            return fac * 4 / 3 * tf.compat.v1.where(q <= 1,
-                                                    tf.compat.v1.where(q_sqrt <= 0.5,
-                                                                       6 * (q_sqrt ** 3 - q) + 1,
-                                                                       2 * (1 - q_sqrt) ** 3),
-                                                    tf.zeros_like(q_sqrt))
-    elif typ == "linear":
+            return fac * 4 / 3 * tf.where(q <= 1,
+                                          tf.where(q_sqrt <= 0.5,
+                                                   6 * (q_sqrt ** 3 - q) + 1,
+                                                   2 * (1 - q_sqrt) ** 3),
+                                          tf.zeros_like(q_sqrt))
 
+    elif typ == "linear":
         def func(q):
             q_sqrt = tf.sqrt(q)
             return fac * (1 - q_sqrt)
-    elif typ == "peak":
 
+    elif typ == "peak":
         def func(q):
             q_sqrt = tf.sqrt(q)
             return fac * (1 - 2 * q_sqrt + q)
-    elif typ == "cubic_grad":
 
-        def func(q):  # fac = 6.0 / (np.pi * h**3) (r/(rl*h))
-            # return tf.where(q <= 1, 1.0, 0.0)
+    elif typ == "cubic_grad":  # fac = 6.0 / (np.pi * h**3) (r/(rl*h))
+        def func(q):
             q_sqrt = tf.sqrt(q)
-            return fac * 4 / 3 * tf.compat.v1.where(q <= 1,
-                                                    tf.compat.v1.where(q_sqrt <= 0.5,
-                                                                       18 * q - 12 * q_sqrt,
-                                                                       -6 * (1 - q_sqrt) ** 2),
-                                                    tf.zeros_like(q_sqrt))
+            return fac * 4 / 3 * tf.where(q <= 1,
+                                          tf.where(q_sqrt <= 0.5,
+                                                   18 * q - 12 * q_sqrt,
+                                                   -6 * (1 - q_sqrt) ** 2),
+                                          tf.zeros_like(q_sqrt))
+
     elif typ is None:
         func = None
+
     else:
-        raise NotImplementedError()
+        raise NotImplementedError(f"Window function type '{typ}' is not implemented.")
+
     return func
 
 
