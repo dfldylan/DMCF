@@ -364,24 +364,24 @@ class Simulator(BasePipeline):
                 loss_tensor_array = tf.TensorArray(tf.float32, size=tf.shape(time_weights)[0] * len(data['pos']),
                                                    dynamic_size=True, clear_after_read=False)
 
-                def train_step(pos, vel, pre, t, loss_array):
-                    inputs = [pos, vel, data["grav"][batch_index][0], None,
-                              data["box"][batch_index][0], data["box_normals"][batch_index][0]]
-                    target_pos = data["pos"][batch_index]
-                    target_vel = data["vel"][batch_index]
-
-                    loss_list = []
-                    pos, vel = model(inputs, training=True)
-                    loss_list.append(model.loss([pos, vel],
-                                                [inputs, target_pos[t + pre + 1], target_pos[t + pre], pre,
-                                                 target_vel[t + pre + 1], target_vel[t + pre]]))
-
-                    merged_loss = merge_dicts(loss_list, lambda x, y: x + y / len(loss_list))
-                    loss_array = loss_array.write(t + batch_index * tf.shape(time_weights)[0],
-                                                  tf.convert_to_tensor(list(merged_loss.values())) * time_weights[t])
-                    return pos, vel, pre, t + 1, loss_array
-
                 for batch_index in range(len(data['pos'])):
+                    def train_step(pos, vel, pre, t, loss_array):
+                        inputs = [pos, vel, data["grav"][batch_index][0], None,
+                                  data["box"][batch_index][0], data["box_normals"][batch_index][0]]
+                        target_pos = data["pos"][batch_index]
+                        target_vel = data["vel"][batch_index]
+
+                        loss_list = []
+                        pos, vel = model(inputs, training=True)
+                        loss_list.append(model.loss([pos, vel],
+                                                    [inputs, target_pos[t + pre + 1], target_pos[t + pre], pre,
+                                                     target_vel[t + pre + 1], target_vel[t + pre]]))
+
+                        merged_loss = merge_dicts(loss_list, lambda x, y: x + y / len(loss_list))
+                        loss_array = loss_array.write(t + batch_index * tf.shape(time_weights)[0],
+                                                      tf.convert_to_tensor(list(merged_loss.values())) * time_weights[t])
+                        return pos, vel, pre, t + 1, loss_array
+
                     loss_tensor_array = tf.while_loop(
                         lambda pos, vel, pre, t, loss_array: t < tf.shape(time_weights)[0],
                         train_step,
