@@ -318,7 +318,7 @@ class Simulator(BasePipeline):
         log.info(f"Writing summary in {self.tensorboard_dir}.")
 
         # @tf.function(experimental_relax_shapes=True)
-        def train(data, time_weights, iterations=0, max_err=None, max_dens_err=None):
+        def train(data, time_weights, max_err=None, max_dens_err=None):
             in_positions, in_velocities = [], []
             pre_steps = []
 
@@ -371,11 +371,10 @@ class Simulator(BasePipeline):
                     target_vel = data["vel"][batch_index]
 
                     loss_list = []
-                    for _ in range(iterations):
-                        pos, vel = model(inputs, training=True)
-                        loss_list.append(model.loss([pos, vel],
-                                                    [inputs, target_pos[t + pre + 1], target_pos[t + pre], pre,
-                                                     target_vel[t + pre + 1], target_vel[t + pre]]))
+                    pos, vel = model(inputs, training=True)
+                    loss_list.append(model.loss([pos, vel],
+                                                [inputs, target_pos[t + pre + 1], target_pos[t + pre], pre,
+                                                 target_vel[t + pre + 1], target_vel[t + pre]]))
 
                     merged_loss = merge_dicts(loss_list, lambda x, y: x + y / len(loss_list))
                     loss_array = loss_array.write(t + batch_index * tf.shape(time_weights)[0],
@@ -439,10 +438,6 @@ class Simulator(BasePipeline):
                         **cfg.data_generator.train)
                     time.sleep(10)
 
-                while (iteration_idx < min(len(cfg.iterations), len(cfg.its_bnds)) and
-                       step >= cfg.its_bnds[iteration_idx]):
-                    iteration_idx += 1
-
                 data_fetch_start = time.time()
                 data = next(train_loader)
 
@@ -459,8 +454,7 @@ class Simulator(BasePipeline):
                 data_fetch_latency = time.time() - data_fetch_start
                 self.log_scalar_every_n_minutes(self.writer, step, 5, 'DataLatency', data_fetch_latency)
 
-                loss, pre_steps = train(data, time_weights, cfg.iterations[iteration_idx],
-                                        cfg.get('max_err', None), cfg.get('max_dens_err', None))
+                loss, pre_steps = train(data, time_weights, cfg.get('max_err', None), cfg.get('max_dens_err', None))
 
                 if iteration == 0 and epoch == start_epoch:
                     self.log_param_count()

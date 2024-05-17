@@ -64,9 +64,6 @@ pipeline:
   ]
   max_warm_up: [0, 5, 10, 20] 
 
-  its_bnds: []
-  iterations: [0] 
-
   optimizer:
     lr_boundaries: [
       20000,
