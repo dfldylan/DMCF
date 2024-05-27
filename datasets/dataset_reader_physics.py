@@ -368,57 +368,6 @@ class PhysicsSimDataFlow:
                 yield sample
 
 
-def get_normalization_stats(files, dt):
-    decompressor = zstd.ZstdDecompressor()
-
-    vel_means, vel_vars = np.zeros((len(files), 3)), np.zeros((len(files), 3))
-    acc_means, acc_vars = np.zeros((len(files), 3)), np.zeros((len(files), 3))
-    cnts = np.zeros((len(files), 1))
-    frame_cnt = 0
-    for i, file in enumerate(files):
-        # read all data from file
-        with open(file, 'rb') as f:
-            data = msgpack.unpackb(decompressor.decompress(f.read()),
-                                   raw=False)
-
-        frame_cnt = np.max([d["frame_id"] for d in data] + [frame_cnt])
-        p = np.stack([d["pos"] for d in data], axis=0)
-        v = (p[1:] - p[:-1])  # /dt
-        a = (v[1:] - v[:-1])  # /dt
-
-        v = np.reshape(v[:-1], (-1, 3))
-        a = np.reshape(a, (-1, 3))
-        cnts[i] = v.shape[0]
-
-        vel_means[i] = np.mean(v, axis=0)
-        acc_means[i] = np.mean(a, axis=0)
-
-        vel_vars[i] = np.var(v, axis=0)
-        acc_vars[i] = np.var(a, axis=0)
-
-    vel_mean = np.sum(vel_means * cnts, axis=0) / np.sum(cnts)
-    vel_var = np.sum(
-        (vel_vars + (vel_means - vel_mean) ** 2) * cnts, axis=0) / np.sum(cnts)
-    vel_std = np.sqrt(vel_var)
-
-    acc_mean = np.sum(acc_means * cnts, axis=0) / np.sum(cnts)
-    acc_var = np.sum(
-        (acc_vars + (acc_means - acc_mean) ** 2) * cnts, axis=0) / np.sum(cnts)
-    acc_std = np.sqrt(acc_var)
-
-    return {
-        "acc_mean": acc_mean,
-        "acc_std": acc_std,
-        "vel_mean": vel_mean,
-        "vel_std": vel_std,
-        "dim": 3,
-        "dt": dt,
-        "default_connectivity_radius": 0.015,
-        "bounds": [[-1., 1.], [-1., 1.]],
-        "sequence_length": frame_cnt
-    }
-
-
 def get_rollout(dataset,
                 stride=1,
                 time_start=0,
@@ -463,16 +412,6 @@ def get_rollout(dataset,
     return out
 
 
-def to_tensor(x):
-    t = {}
-    for k, v in x.items():
-        if isinstance(v, list) and v[0] is None:
-            t[k] = v
-        else:
-            t[k] = tf.convert_to_tensor(v)
-    return t
-
-
 class ShuffleIterator:
     def __init__(self, iterator, buffer_size):
         self.iterator = iterator
@@ -486,7 +425,7 @@ class ShuffleIterator:
                 self.buffer.append(item)
             else:
                 yield self._pop_and_append(item)
-        while len(self.buffer) > 0:
+        while self.buffer:
             yield self.buffer.popleft()
 
     def __iter__(self):
@@ -504,99 +443,51 @@ class ShuffleIterator:
 
 def repeat_iter(df):
     while True:
-        for item in df:
-            yield item
-
-
-def process_iterator(iterator, process_function):
-    for item in iterator:
-        yield process_function(item)
+        yield from df
 
 
 def batch_data_generator(data_iter, batch_size):
     batch = {}
     for item in data_iter:
         for key, value in item.items():
-            if key not in batch:
-                batch[key] = []
-            batch[key].append(value)
-        if len(batch[list(batch.keys())[0]]) == batch_size:
+            batch.setdefault(key, []).append(value)
+        if len(next(iter(batch.values()))) == batch_size:
             yield batch
-            batch = {key: [] for key in batch.keys()}
-    if batch[list(batch.keys())[0]]:  # check if there are remaining items in the batch
+            batch = {key: [] for key in batch}
+    if any(batch.values()):
         yield batch
 
 
-def worker_func(queue_out, args):
-    data_flow = process_data(args)  # This is a data processing function
-    while True:
-        try:
-            queue_out.put(next(data_flow))
-        except Exception as e:
-            print(f"Error in worker process: {e}")
-            break  # Or you can choose to re-raise the exception, depending on how you want to handle the exception
-
-
-def parallel_iterator(num_workers, args):
-    m = Manager()
-    queue_out = m.Queue(maxsize=num_workers * 2)  # 设置queue的最大大小为100
-    # 启动 worker 进程
-    workers = []
-    for _ in range(num_workers):
-        worker = Process(target=worker_func, args=(queue_out, args))  # 注意这里的逗号，它用来创建单元素的元组
-        worker.start()
-        workers.append(worker)
-    # 从 queue_out 获取处理后的数据
-    while True:
-        try:
-            yield queue_out.get(timeout=1)
-        except Empty:
-            if all(not worker.is_alive() for worker in workers):
-                break
-    # 确保所有进程都已经结束
-    for worker in workers:
-        worker.join()
-
-
-def process_data(args):
-    data_flow = PhysicsSimDataFlow(dataset=args['dataset'],
-                                   shuffle=True if args['shuffle_buffer'] else False,
-                                   window=args['window'],
-                                   is2d=args['is2d'],
-                                   pre_frames=args['pre_frames'],
-                                   stride=args['stride'],
-                                   augment=args['augment'],
-                                   translate=args['translate'],
-                                   scale=args['scale'],
-                                   **args['kwargs'])
-    if args['repeat']:
-        data_flow = repeat_iter(data_flow)
-    if args['shuffle_buffer']:
-        data_flow = ShuffleIterator(data_flow, args['shuffle_buffer'])
-    # data_flow = process_iterator(data_flow, to_tensor)  # Assume to_tensor is your processing function
-    return data_flow
-
-
-def get_dataloader(dataset, batch_size=1, window=1, repeat=False, shuffle_buffer=None, num_workers=1, cache_data=False,
+def get_dataloader(dataset, batch_size=1, window=1, repeat=False, shuffle_buffer=None, cache_data=False,
                    is2d=False, pre_frames=0, stride=1, translate=None, scale=None, augment={}, **kwargs):
     # caching makes only sense if the data is finite
     if cache_data:
         assert repeat == False
         assert not augment
-        assert num_workers == 1
 
-    args = {'dataset': dataset, 'batch_size': batch_size, 'window': window, 'repeat': repeat,
-            'shuffle_buffer': shuffle_buffer, 'num_workers': num_workers, 'cache_data': cache_data,
-            'is2d': is2d, 'pre_frames': pre_frames, 'stride': stride, 'translate': translate,
-            'scale': scale, 'augment': augment, 'kwargs': kwargs}
+    data_flow = PhysicsSimDataFlow(
+        dataset=dataset,
+        shuffle=bool(shuffle_buffer),
+        window=window,
+        is2d=is2d,
+        pre_frames=pre_frames,
+        stride=stride,
+        translate=translate,
+        scale=scale,
+        augment=augment,
+        **kwargs
+    )
 
-    if num_workers > 1:
-        data_flow = parallel_iterator(num_workers, args)
-    else:
-        data_flow = process_data(args)
-    data_flow = batch_data_generator(data_flow, batch_size=batch_size)
+    if repeat:
+        data_flow = repeat_iter(data_flow)
+    if shuffle_buffer:
+        data_flow = ShuffleIterator(data_flow, shuffle_buffer)
+
+    data_flow = batch_data_generator(data_flow, batch_size)
+
     if cache_data:
         data_flow = list(data_flow)
+
     return data_flow
 
 
