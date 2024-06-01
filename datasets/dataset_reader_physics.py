@@ -319,12 +319,13 @@ class PhysicsSimDataFlow:
 
         for file_i in files_idxs:
             data = self.dataset[file_i]
-            data_idxs = np.arange(len(data) - (self.window - 1 + self.pre_frames) * self.stride)
+            data_idxs = np.arange(
+                len(data) - (self.window - 1 + self.pre_frames) * self.stride)
             assert (len(data_idxs) > 0)
+            if self.shuffle:
+                self.rng.shuffle(data_idxs)
 
             if self.sample_cnt is not None:
-                if self.shuffle:
-                    self.rng.shuffle(data_idxs)
                 data_idxs = data_idxs[:self.sample_cnt]
 
             for data_i in data_idxs:
@@ -479,6 +480,8 @@ def get_dataloader(dataset, batch_size=1, window=1, repeat=False, shuffle_buffer
 
     if repeat:
         data_flow = repeat_iter(data_flow)
+    if shuffle_buffer:
+        data_flow = ShuffleIterator(data_flow, shuffle_buffer)
 
     data_flow = batch_data_generator(data_flow, batch_size)
 
