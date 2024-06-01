@@ -62,27 +62,47 @@ def get_loss(typ, fac=1.0, **kwargs):
 
         def f(target, pred, **kw):
             pre_f = tf.exp(-kwargs.get("pre_scale", 0.0) * tf.cast(kw.get("pre_steps"), tf.float32))
-            fluid_importance = tf.exp(-kwargs.get("neighbor_scale", 1.0) * kw.get("num_fluid_neighbors", 0.0))
-            solid_importance = tf.exp(kwargs.get("box_neighbor_scale", 1.0) * kw.get("num_solid_neighbors", 0.0))
+            fluid_neighbor_scale = kwargs.get("neighbor_scale", 1.0)
+            solid_neighbor_scale = kwargs.get("box_neighbor_scale", 1.0)
+            fluid_method = kwargs.get("fluid_method", 'exp')
+            x = kw.get("num_fluid_neighbors", 0.0)
+            if fluid_method == 'exp':
+                y = 1 + tf.exp(-x)
+            elif fluid_method == 'reciprocal':
+                y = 1 + (x + 1) ** (-1)
+            else:
+                raise NotImplementedError(f"Window function type '{fluid_method}' is not implemented.")
+            fluid_importance = fluid_neighbor_scale * y
+
+            solid_method = kwargs.get("solid_method", 'linear')
+            x = kw.get("num_solid_neighbors", 0.0)
+            if solid_method == 'exp':
+                y = tf.exp(x)
+            elif solid_method == 'linear':
+                y = 1 + x
+            elif solid_method == 'square':
+                y = 1 + x ** 2
+            else:
+                raise NotImplementedError(f"Window function type '{solid_method}' is not implemented.")
+            solid_importance = solid_neighbor_scale * y
+
             scale = -kwargs.get("scale", 1.0)
             diff = (tf.reduce_sum(((target - pred) * scale) ** 2, axis=-1) + 1e-9) ** kwargs.get("gamma", 0.5)
             return fac * tf.reduce_mean(pre_f * fluid_importance * solid_importance * diff)
 
         return f
-    elif typ == "weighted_mse_vel":
+    elif typ == "weighted_max":
 
-        def f(target, pred, **kw):
+        def weighted_max(target, pred, **kw):
             pre_f = tf.exp(-kwargs.get("pre_scale", 0.0) * tf.cast(kw.get("pre_steps"), tf.float32))
-            target_vel = kw.get("target_vel")
-            pred_vel = kw.get("pred_vel")
-            fluid_importance = tf.exp(-kwargs.get("neighbor_scale", 1.0) * kw.get("num_fluid_neighbors"))
+            fluid_importance = tf.exp(-kwargs.get("neighbor_scale", 1.0) * kw.get("num_fluid_neighbors", 0.0))
             solid_importance = tf.exp(kwargs.get("box_neighbor_scale", 1.0) * kw.get("num_solid_neighbors", 0.0))
             scale = -kwargs.get("scale", 1.0)
-            diff_vel = (target_vel - pred_vel) * scale
-            diff = (tf.reduce_sum(diff_vel ** 2, axis=-1) + 1e-9) ** kwargs.get("gamma", 0.5)
-            return fac * tf.reduce_mean(pre_f * fluid_importance * solid_importance * diff)
+            diff = (tf.reduce_sum(((target - pred) * scale) ** 2, axis=-1) + 1e-9) ** kwargs.get("gamma", 0.5)
+            weighted_diff = pre_f * fluid_importance * solid_importance * diff
+            return fac * tf.reduce_max(weighted_diff)
 
-        return f
+        return weighted_max
     elif typ == "dense":
         win = get_window_func(kwargs.pop("win", None))
         return partial(density_loss, win=win, **kwargs)
