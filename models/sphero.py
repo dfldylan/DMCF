@@ -1,7 +1,5 @@
 import tensorflow as tf
-from scipy.spatial import cKDTree
 import open3d.ml.tf as ml3d
-import numpy as np
 from utils.tools.losses import get_window_func, compute_density, compute_pressure
 from utils.tools.neighbor import reduce_subarrays_sum_multi
 
@@ -315,18 +313,12 @@ class SPHeroNet(PBFReal):
             ans_convs.append(ans)
 
         out = ans_convs[-1]
-        if out.shape[-1] == 1:
-            out = tf.repeat(out, 3, axis=-1)
-        elif out.shape[-1] == 2:
-            out = tf.concat([out, out[:, :1]], axis=-1)
 
         #
         # scale to better match the scale of the output distribution
         #
         pcnt = tf.shape(pos)[0]
         self.pos_correction = self.out_scale * out[:pcnt]
-        self.obs = self.out_scale * out[pcnt:]
-
         pos2_corrected, vel2_corrected = self.compute_new_pos_vel(_pos, _vel, pos, vel, self.pos_correction)
 
         return [pos2_corrected, vel2_corrected]
@@ -336,13 +328,6 @@ class SPHeroNet(PBFReal):
         # postprocess output of network
         #
         pos, vel = prev
-        _pos, _vel, acc, feats, box, bfeats = data
-
-        group_position = tf.concat([pos, box], axis=0)
-        group_masses = tf.concat([self.fluid_mass * tf.ones_like(pos[:, 0]), self.solid_masses], axis=0)
-        self.densities = compute_density(pos, group_position, self.query_radii, mass=group_masses)
-
-        # pos, vel = super(SPHeroNet, self).postprocess(prev, data, training, vel_corr, **kwargs)
         return [pos, vel]
 
     def loss(self, results, data):
