@@ -392,8 +392,8 @@ class Simulator(BasePipeline):
     # @tf.function(experimental_relax_shapes=True)
     def train_step(self, model, cfg, optimizer, data, time_weights):
         in_positions, in_velocities, pre_steps = self.warmup_phase(model, data, cfg)
-        total_loss, pre_steps = self.calculate_loss(model, cfg, optimizer, data, in_positions, in_velocities, pre_steps,
-                                                    time_weights)
+        total_loss = self.calculate_loss(model, cfg, optimizer, data, in_positions, in_velocities, pre_steps,
+                                         time_weights)
         return total_loss, pre_steps
 
     def warmup_phase(self, model, data, cfg):
@@ -454,11 +454,11 @@ class Simulator(BasePipeline):
                                                                                model, data, batch_index, time_weights)
 
             total_loss = tf.reduce_sum(loss_tensor_array.stack(), axis=0) / (
-                        tf.reduce_sum(time_weights) * len(data['pos']))
+                    tf.reduce_sum(time_weights) * len(data['pos']))
             total_loss = self.apply_weight_decay(cfg, model, total_loss)
             gradients = tape.gradient(total_loss, model.trainable_weights)
             self.apply_gradients(optimizer, cfg, gradients, model)
-        return total_loss, pre_steps
+        return total_loss
 
     def train_step_body(self, pos, vel, pre, t, loss_array, model, data, batch_index, time_weights):
         inputs = [pos, vel, data["grav"][batch_index][0], None, data["box"][batch_index][0],
@@ -473,6 +473,7 @@ class Simulator(BasePipeline):
         loss_array = loss_array.write(t + batch_index * tf.shape(time_weights)[0],
                                       tf.convert_to_tensor(list(merged_loss.values())) * time_weights[t])
         return pos, vel, pre, t + 1, loss_array
+
     def apply_weight_decay(self, cfg, model, total_loss):
         weight_decay = cfg.get("w_decay", 0)
         if weight_decay > 0:
@@ -502,4 +503,3 @@ class Simulator(BasePipeline):
         desc += f" > loss: {total_loss:.05f}"
 
         return loss_values, desc
-
