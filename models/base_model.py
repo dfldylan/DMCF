@@ -167,9 +167,8 @@ class BaseModel(ABC, tf.keras.Model):
     def integrate_pos_vel(self, pos1, vel1, acc1=None):
         """Apply gravity and integrate position and velocity"""
         dt = self.timestep
-        vel2 = vel1 + dt * (acc1 if acc1 is not None else tf.constant(
-            [0, self.grav, 0]))
-        pos2 = pos1 + dt * vel2
+        vel2 = vel1 + dt * (acc1 if acc1 is not None else tf.constant([0, self.grav, 0]))
+        pos2 = pos1 + dt * (vel1 + vel2) / 2
         return pos2, vel2
 
     def compute_new_pos_vel(self, pos1, vel1, pos2, vel2, pos_correction):
@@ -179,7 +178,7 @@ class BaseModel(ABC, tf.keras.Model):
         """
         dt = self.timestep
         pos = pos2 + pos_correction
-        vel = (pos - pos1) / dt
+        vel = 2 * (pos - pos1) / dt - vel1
         return pos, vel
 
     def compute_XSPH_viscosity(self, fluid_nns, pos, velocities, fluid_mass, densities, viscosity, radius):
