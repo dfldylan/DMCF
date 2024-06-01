@@ -325,6 +325,12 @@ class Simulator(BasePipeline):
         for epoch in range(start_epoch, cfg.max_epoch + 1):
             log.info(f'=== EPOCH {epoch}/{cfg.max_epoch} ===')
             process_bar = tqdm(range(cfg.iter), desc='training')
+            # 动态计算 target_loss
+            target_loss = cfg.optimizer.loss_values[-1]
+            for i in range(len(cfg.optimizer.loss_boundaries)):
+                if epoch < cfg.optimizer.loss_boundaries[i]:
+                    target_loss = cfg.optimizer.loss_values[i]
+                    break
             for iteration in process_bar:
                 step = epoch * cfg.iter + iteration
 
@@ -357,7 +363,8 @@ class Simulator(BasePipeline):
                 data_fetch_latency = time.time() - data_fetch_start
                 self.log_scalar_every_n_minutes(self.writer, step, 5, 'DataLatency', data_fetch_latency)
 
-                loss, pre_steps = self.train_step(model, cfg, self.optimizer, data, time_weights)
+                loss, pre_steps = self.train_step(model, cfg, self.optimizer, data, time_weights,
+                                                  target_loss=target_loss)
 
                 if iteration == 0 and epoch == start_epoch:
                     self.log_param_count()
@@ -390,10 +397,16 @@ class Simulator(BasePipeline):
         return tf.convert_to_tensor(list(time_weights))
 
     # @tf.function(experimental_relax_shapes=True)
-    def train_step(self, model, cfg, optimizer, data, time_weights):
+    def train_step(self, model, cfg, optimizer, data, time_weights, target_loss=0):
         in_positions, in_velocities, pre_steps = self.warmup_phase(model, data, cfg)
         total_loss = self.calculate_loss(model, cfg, optimizer, data, in_positions, in_velocities, pre_steps,
                                          time_weights)
+        if target_loss == 0:
+            return total_loss, pre_steps
+        while total_loss > target_loss:
+            logging.info("loss: {} > target_loss: {}".format(total_loss, target_loss))
+            total_loss = self.calculate_loss(model, cfg, optimizer, data, in_positions, in_velocities, pre_steps,
+                                             time_weights)
         return total_loss, pre_steps
 
     def warmup_phase(self, model, data, cfg):
