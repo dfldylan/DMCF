@@ -15,22 +15,33 @@ class SPHeroConv(tf.keras.layers.Layer):
             activation=None,
             use_bias=True,
             radius_search_ignore_query_points=True,
+            sym=False,
             **kwargs):
         super(SPHeroConv, self).__init__(**kwargs)
         self.filters = filters
         self.activation = tf.keras.activations.get(activation)  # Ensure activation is a Keras activation function
         self.use_bias = use_bias
         self.radius_search_ignore_query_points = radius_search_ignore_query_points
-        self.fixed_radius_search = ml3d.layers.FixedRadiusSearch(ignore_query_point=radius_search_ignore_query_points,dtype=tf.int32)
+        self.fixed_radius_search = ml3d.layers.FixedRadiusSearch(ignore_query_point=radius_search_ignore_query_points,
+                                                                 dtype=tf.int32)
+        self.sym = sym
 
     def build(self, input_shape):
         self.in_channels = input_shape[-1]
-        self.kernel = self.add_weight(
-            name="kernel",
-            shape=[4, self.in_channels, self.filters],
-            initializer='glorot_uniform',
-            trainable=True
-        )
+        if self.sym:
+            self.kernel = self.add_weight(
+                name="kernel",
+                shape=[2, self.in_channels, self.filters],
+                initializer='glorot_uniform',
+                trainable=True
+            )
+        else:
+            self.kernel = self.add_weight(
+                name="kernel",
+                shape=[4, self.in_channels, self.filters],
+                initializer='glorot_uniform',
+                trainable=True
+            )
         if self.use_bias:
             self.bias = self.add_weight(
                 name="bias",
@@ -55,6 +66,8 @@ class SPHeroConv(tf.keras.layers.Layer):
 
         # 计算极坐标和权重
         spherical_coords = self.cartesian_to_spherical(difference, extents)  # [_, 4]
+        if self.sym:
+            spherical_coords = spherical_coords[:, :2]
         kernel = tf.tensordot(spherical_coords, self.kernel, axes=1)  # [_, C_in, C_out]
 
         neighbors_feats = tf.gather(input_features, neighbors_index)  # [_, C_in]
@@ -119,6 +132,8 @@ class SPHeroNet(PBFReal):
                  layer_channels=[32, 64, 64, 3],
                  out_scale=[0.01, 0.01, 0.01],
                  window_dens='poly6',
+                 sym=False,
+                 activation='relu',
                  **kwargs):
 
         super().__init__(name=name,
@@ -150,12 +165,15 @@ class SPHeroNet(PBFReal):
         self.ignore_query_points = ignore_query_points
         self.layer_channels = layer_channels
         self.viscosity = viscosity
+        self.sym = sym
+        self.activation = tf.keras.activations.get(activation)
 
         self._all_convs = []
 
         self.fluid_convs = self.get_cconv(name='fluid_obs',
                                           filters=self.channels,
-                                          activation=None)
+                                          activation=None,
+                                          sym=self.sym)
 
         self.fluid_dense = tf.keras.layers.Dense(units=self.channels,
                                                  name="fluid_dense",
@@ -163,30 +181,35 @@ class SPHeroNet(PBFReal):
 
         self.obs_convs = self.get_cconv(name='obs_conv',
                                         filters=self.channels,
-                                        activation=None)
+                                        activation=None,
+                                        sym=self.sym)
 
         self.obs_dense = tf.keras.layers.Dense(units=self.channels,
                                                name="obs_dense",
                                                activation=None)
 
-        self.convs = []
-        self.denses = []
+        self.all_layers = [None]
         for i in range(1, len(self.layer_channels)):
+            layer = {}
             ch = self.layer_channels[i]
-            conv = self.get_cconv(name='conv{0}'.format(i),
-                                  filters=ch,
-                                  activation=None,
-                                  ignore_query_points=self.ignore_query_points)
-            self.convs.append(conv)
             dense = tf.keras.layers.Dense(units=ch,
                                           name="dense{0}".format(i),
                                           activation=None)
-            self.denses.append(dense)
+            layer['dense'] = dense
+            if i != len(self.layer_channels) - 1 and i != len(self.layer_channels) - 2:
+                conv = self.get_cconv(name='conv{0}'.format(i),
+                                      filters=ch,
+                                      activation=None,
+                                      ignore_query_points=self.ignore_query_points,
+                                      sym=self.sym)
+                layer['conv'] = conv
+            self.all_layers.append(layer)
 
     def get_cconv(self,
                   name,
                   activation=None,
                   ignore_query_points=None,
+                  sym=False,
                   **kwargs):
 
         if ignore_query_points is None:
@@ -195,6 +218,7 @@ class SPHeroNet(PBFReal):
             name=name,
             activation=activation,
             radius_search_ignore_query_points=ignore_query_points,
+            sym=sym,
             **kwargs)
 
         self._all_convs.append((name, conv))
@@ -273,21 +297,21 @@ class SPHeroNet(PBFReal):
         # feats = feats[:tf.shape(pos)[0]]
 
         ans_convs = [feats]  # [self.channels*3]
-        first = True
-        for conv, dense in zip(self.convs, self.denses):
-            feats = tf.keras.activations.relu(ans_convs[-1])
-            # ans = []
-            if first:
+        for i in range(1, len(self.all_layers)):
+            feats = self.activation(ans_convs[-1])
+            conv = self.all_layers[i].get('conv')
+            dense = self.all_layers[i].get('dense')
+            if i == 1:
                 ans_conv, _ = conv(feats, self.all_pos, pos, self.query_radii)
                 ans_dense = dense(feats[:tf.shape(pos)[0]])
-                first = False
-            else:
-                ans_conv, _ = conv(feats, pos, pos, self.query_radii)
-                ans_dense = dense(feats)
-            if ans_dense[-1].shape[-1] == ans_convs[-1].shape[-1]:
-                ans = ans_conv + ans_dense + ans_convs[-1]
-            else:
                 ans = ans_conv + ans_dense
+            else:
+                ans_dense = dense(feats)
+                if conv is not None:
+                    ans_conv, _ = conv(feats, pos, pos, self.query_radii)
+                    ans = ans_conv + ans_dense
+                else:
+                    ans = ans_dense
             ans_convs.append(ans)
 
         out = ans_convs[-1]
