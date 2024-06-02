@@ -328,7 +328,7 @@ class Simulator(BasePipeline):
             # 动态计算 target_loss
             target_loss = cfg.optimizer.loss_values[-1]
             for i in range(len(cfg.optimizer.loss_boundaries)):
-                if epoch < cfg.optimizer.loss_boundaries[i]:
+                if epoch < (cfg.optimizer.loss_boundaries[i] // cfg.iter):
                     target_loss = cfg.optimizer.loss_values[i]
                     break
             for iteration in process_bar:
@@ -403,7 +403,9 @@ class Simulator(BasePipeline):
                                          time_weights)
         if target_loss == 0:
             return total_loss, pre_steps
-        while total_loss > target_loss:
+        for i in range(10):
+            if total_loss < target_loss:
+                break
             logging.info("loss: {} > target_loss: {}".format(total_loss, target_loss))
             total_loss = self.calculate_loss(model, cfg, optimizer, data, in_positions, in_velocities, pre_steps,
                                              time_weights)
