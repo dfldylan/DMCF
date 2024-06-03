@@ -149,6 +149,7 @@ class SPHeroNet(PBFReal):
         diameter = 2.0 * particle_radii[0]
         volume = diameter ** 3
         self.fluid_mass = volume * self.m_density0
+        self.solid_mass = 2.5 * self.fluid_mass
 
         self.use_mass = use_mass
         self.use_vel = use_vel
@@ -228,9 +229,9 @@ class SPHeroNet(PBFReal):
                    vel_corr=None,
                    tape=None,
                    **kwargs):
-        pos, vel, solid_masses = super(SPHeroNet, self).preprocess(data, training, vel_corr, tape, **kwargs)
+        pos, vel, _ = super(SPHeroNet, self).preprocess(data, training, vel_corr, tape, **kwargs)
         _pos, _vel, acc, feats, box, bfeats = data
-        self.solid_masses = 1.2 * solid_masses
+        # self.solid_masses = 1.2 * solid_masses
         #
         # preprocess features
         #
@@ -239,7 +240,7 @@ class SPHeroNet(PBFReal):
         box_feats = [tf.ones_like(box[:, :1])]
         if self.use_mass:
             fluid_feats.append(fluid_feats[0] * self.fluid_mass)
-            box_feats.append(self.solid_masses[:, tf.newaxis])
+            box_feats.append(box_feats[0] * self.solid_mass)
         if self.use_vel:
             fluid_feats.append(vel)
         if self.use_acc:
@@ -252,9 +253,8 @@ class SPHeroNet(PBFReal):
         all_pos = tf.concat([pos, box], axis=0)
         self.all_pos = all_pos
         if self.dens_feats or self.pres_feats:
-            dens = compute_density(all_pos, all_pos, self.query_radii,
-                                   mass=tf.stack([self.fluid_mass * tf.ones_like(pos[:, :1]), self.solid_masses],
-                                                 axis=0))
+            dens = compute_density(all_pos, all_pos, self.query_radii, mass=tf.concat(
+                [self.fluid_mass * tf.ones_like(pos[:, :1]), self.solid_mass * tf.ones_like(box[:, :1])], axis=0))
             if self.dens_feats:
                 fluid_feats.append(tf.expand_dims(dens[:tf.shape(pos)[0]], -1))
                 box_feats.append(tf.expand_dims(dens[tf.shape(pos)[0]:], -1))
@@ -335,6 +335,7 @@ class SPHeroNet(PBFReal):
 
         pos, vel = results
         target = data[1]
+        box = data[0][4]
 
         # compute the number of fluid neighbors.
         # this info is used in the loss function during training.
@@ -347,10 +348,20 @@ class SPHeroNet(PBFReal):
         num_fluid_neighbors, num_solid_neighbors = \
             tf.stop_gradient(num_fluid_neighbors), tf.stop_gradient(num_solid_neighbors)
 
+        all_pos = tf.concat([pos, box], axis=0)
+        mass = tf.concat([self.fluid_mass * tf.ones_like(pos[:, 0]), self.solid_mass * tf.ones_like(box[:, 0])],
+                         axis=0)
+        density = compute_density(out_pos=pos, in_pos=all_pos, radius=self.query_radii, mass=mass,
+                                  ignore_neighbors_grad=True)
+
         for n, l in self.loss_fn.items():
-            loss[n] = l(target,
-                        pos,
-                        pre_steps=data[3],
-                        num_fluid_neighbors=num_fluid_neighbors,
-                        num_solid_neighbors=num_solid_neighbors)
+            loss[n] = l(
+                target,
+                pos,
+                pre_steps=data[3],
+                num_fluid_neighbors=num_fluid_neighbors,
+                num_solid_neighbors=num_solid_neighbors,
+                pred_dens=density,
+                density0=self.m_density0,
+            )
         return loss
