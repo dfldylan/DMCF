@@ -439,7 +439,7 @@ def density_loss_pbf(label, pos, pred_dens, density0, fac, eps=0.01, use_max=Fal
     rest_dens = density0
     if use_max:
         return tf.abs(tf.reduce_max(pred_dens) - rest_dens) / rest_dens
-    err = tf.keras.activations.relu(pred_dens - rest_dens - eps)
+    err = (pred_dens / rest_dens - 1) ** 2
     return tf.reduce_mean(err) * fac
 
 
