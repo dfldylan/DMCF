@@ -310,7 +310,8 @@ def get_dilated_pos(pos,
     return dilated_pos, pcnt, idx
 
 
-def compute_density(out_pos, in_pos=None, radius=0.005, win=get_window_func('poly6'), mass=None, nns=None):
+def compute_density(out_pos, in_pos=None, radius=0.005, win=get_window_func('poly6'), mass=None, nns=None,
+                    ignore_neighbors_grad=False):
     if in_pos is None:
         in_pos = out_pos
 
@@ -329,6 +330,8 @@ def compute_density(out_pos, in_pos=None, radius=0.005, win=get_window_func('pol
         values=tf.gather(in_pos, neighbors_index),
         row_splits=neighbors_row_splits)
 
+    if ignore_neighbors_grad:
+        neighbors = tf.stop_gradient(neighbors)
     dist = neighbors - tf.expand_dims(out_pos, axis=1)
     # dist = tf.expand_dims(out_pos, axis=0) - tf.expand_dims(out_pos, axis=1)
     dist = tf.reduce_sum(dist ** 2, axis=-1) / radius ** 2
