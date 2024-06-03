@@ -1,3 +1,5 @@
+import random
+
 import tensorflow as tf
 import logging
 import numpy as np
@@ -322,6 +324,7 @@ class Simulator(BasePipeline):
         window_idx, warmup_idx, iteration_idx = 0, 0, 0
         log.info("Started training")
 
+        error_samples = []
         for epoch in range(start_epoch, cfg.max_epoch + 1):
             log.info(f'=== EPOCH {epoch}/{cfg.max_epoch} ===')
             process_bar = tqdm(range(cfg.iter), desc='training')
@@ -333,44 +336,60 @@ class Simulator(BasePipeline):
                     break
             for iteration in process_bar:
                 step = epoch * cfg.iter + iteration
+                if iteration < 0.8 * cfg.iter:
 
-                loader_updated = False
+                    loader_updated = False
 
-                while window_idx < min(len(cfg.windows), len(cfg.window_bnds)) and step >= cfg.window_bnds[window_idx]:
-                    window_idx += 1
-                    loader_updated = True
+                    while window_idx < min(len(cfg.windows), len(cfg.window_bnds)) and step >= cfg.window_bnds[
+                        window_idx]:
+                        window_idx += 1
+                        loader_updated = True
 
-                while warmup_idx < min(len(cfg.max_warm_up), len(cfg.warm_up_bnds)) and step >= cfg.warm_up_bnds[
-                    warmup_idx]:
-                    warmup_idx += 1
-                    loader_updated = True
+                    while warmup_idx < min(len(cfg.max_warm_up), len(cfg.warm_up_bnds)) and step >= cfg.warm_up_bnds[
+                        warmup_idx]:
+                        warmup_idx += 1
+                        loader_updated = True
 
-                if loader_updated:
-                    train_loader = get_dataloader(
-                        dataset.train,
-                        batch_size=cfg.batch_size,
-                        pre_frames=cfg.max_warm_up[warmup_idx],
-                        window=cfg.windows[window_idx],
-                        **cfg.data_generator,
-                        **cfg.data_generator.train
-                    )
-                    # time.sleep(10)
+                    if loader_updated:
+                        train_loader = get_dataloader(
+                            dataset.train,
+                            batch_size=cfg.batch_size,
+                            pre_frames=cfg.max_warm_up[warmup_idx],
+                            window=cfg.windows[window_idx],
+                            **cfg.data_generator,
+                            **cfg.data_generator.train
+                        )
+                        # time.sleep(10)
 
-                data_fetch_start = time.time()
-                data = next(train_loader)
-                time_weights = self.calculate_time_weights(cfg, data, step, window_idx)
+                    data_fetch_start = time.time()
+                    data = next(train_loader)
+                    time_weights = self.calculate_time_weights(cfg, data, step, window_idx)
 
-                data_fetch_latency = time.time() - data_fetch_start
+                    data_fetch_latency = time.time() - data_fetch_start
+                else:
+                    data_fetch_start = time.time()
+                    data = random.choice(error_samples) if error_samples else next(train_loader)
+                    time_weights = self.calculate_time_weights(cfg, data, step, window_idx)
+
+                    data_fetch_latency = time.time() - data_fetch_start
                 self.log_scalar_every_n_minutes(self.writer, step, 5, 'DataLatency', data_fetch_latency)
 
-                loss, pre_steps = self.train_step(model, cfg, self.optimizer, data, time_weights,
-                                                  target_loss=target_loss)
+                loss, pre_steps = self.train_step(model, cfg, self.optimizer, data, time_weights)
 
                 if iteration == 0 and epoch == start_epoch:
                     self.log_param_count()
 
                 # 在主代码中使用新的函数
                 loss_values, desc = self.log_and_generate_description(model, loss, time_weights, data, pre_steps)
+                if iteration < 0.8 * cfg.iter and loss_values['loss'] >= target_loss:
+                    if not any(data is item for item in error_samples):
+                        logging.info("loss: {} >= target_loss: {}, add to error_samples".format(loss_values['loss'],
+                                                                                                target_loss))
+                        error_samples.append(data)
+                elif iteration >= 0.8 * cfg.iter and loss_values['loss'] < target_loss:
+                    error_samples[:] = [item for item in error_samples if data is not item]
+                    logging.info("loss: {} < target_loss: {}, remove from error_samples".format(loss_values['loss'],
+                                                                                                target_loss))
                 process_bar.set_description(desc)
                 process_bar.refresh()
 
@@ -397,18 +416,10 @@ class Simulator(BasePipeline):
         return tf.convert_to_tensor(list(time_weights))
 
     # @tf.function(experimental_relax_shapes=True)
-    def train_step(self, model, cfg, optimizer, data, time_weights, target_loss=0):
+    def train_step(self, model, cfg, optimizer, data, time_weights):
         in_positions, in_velocities, pre_steps = self.warmup_phase(model, data, cfg)
         total_loss = self.calculate_loss(model, cfg, optimizer, data, in_positions, in_velocities, pre_steps,
                                          time_weights)
-        if target_loss == 0:
-            return total_loss, pre_steps
-        for i in range(10):
-            if total_loss < target_loss:
-                break
-            logging.info("loss: {} > target_loss: {}".format(total_loss, target_loss))
-            total_loss = self.calculate_loss(model, cfg, optimizer, data, in_positions, in_velocities, pre_steps,
-                                             time_weights)
         return total_loss, pre_steps
 
     def warmup_phase(self, model, data, cfg):
