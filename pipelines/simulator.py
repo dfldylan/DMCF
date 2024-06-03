@@ -482,8 +482,7 @@ class Simulator(BasePipeline):
         target_vel = data["vel"][batch_index]
         pos, vel = model(inputs, training=True)
         loss_list = [model.loss([pos, vel],
-                                [inputs, target_pos[t + pre + 1], target_pos[t + pre], pre, target_vel[t + pre + 1],
-                                 target_vel[t + pre]])]
+                                [inputs, target_pos[t + pre + 1], target_pos[t + pre], pre])]
         merged_loss = merge_dicts(loss_list, lambda x, y: x + y / len(loss_list))
         loss_array = loss_array.write(t + batch_index * tf.shape(time_weights)[0],
                                       tf.convert_to_tensor(list(merged_loss.values())) * time_weights[t])

@@ -334,7 +334,7 @@ class SPHeroNet(PBFReal):
         loss = {}
 
         pos, vel = results
-        target, target_vel = data[1], data[4]
+        target = data[1]
 
         # compute the number of fluid neighbors.
         # this info is used in the loss function during training.
