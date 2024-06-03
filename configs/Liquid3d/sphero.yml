@@ -1,5 +1,5 @@
 dataset:
-  name: CConvData3D
+  name: CConvData3D_4
 
   dataset_path: /workdir/_datasets/CCONV/ours_default_data # path to dataset
   #cache_dir: ./logs/cache/
@@ -8,12 +8,14 @@ model:
   name: SPHeroNet
 
   ckpt_path: # path to checkpoint
-  particle_radii: [0.025]
+  particle_radii: [ 0.025 ]
   timestep: 0.02 # depends on stride of dataloader (timestep * stride)
   grav: -9.81
-  out_scale: [0.0078125, 0.0078125, 0.0078125] 
+  out_scale: [ 0.0078125, 0.0078125, 0.0078125 ]
   rest_dens: 1000.0
-
+  layer_channels: [ 32, 64, 64, 16, 3 ]
+  sym: False
+  activation: tanh
   #transformation:
   #  grav_eqvar: [0, -1, 0]
 
@@ -22,20 +24,18 @@ model:
       typ: weighted_mse
       fac: 128.0
       gamma: 0.5
-      neighbor_scale: 0.01
-      box_neighbor_scale: 0.05
-      scale: 1.0
+      fluid_method: linear
       #pre_scale: 0.04
-#    weighted_mse_vel:
-#      typ: weighted_mse_vel
-#      fac: 128.0
-#      gamma: 0.5
-#      neighbor_scale: 0.01
-#      box_neighbor_scale: 0.05
-#      scale: 0.02
-#    dense_pbf:
-#      typ: dense_pbf
-#      fac: 128.0
+    #    weighted_mse_vel:
+    #      typ: weighted_mse_vel
+    #      fac: 128.0
+    #      gamma: 0.5
+    #      neighbor_scale: 0.01
+    #      box_neighbor_scale: 0.05
+    #      scale: 0.02
+    dense_pbf:
+      typ: dense_pbf
+      fac: 1.0
 
   dens_feats: False
   pres_feats: False
@@ -45,18 +45,18 @@ pipeline:
   version: 3d
 
   max_epoch: 50
-  batch_size: 4
+  batch_size: 1
   iter: 1000
-  
-  window_bnds: [15000]
-  windows: [2, 3] 
+
+  window_bnds: [ ]
+  windows: [ 2 ]
   time_blend: 200
 
   #max_err: 0.0025 # 1/2 voxel
   max_dens_err: 0.1 # 20% density error
 
-  warm_up_bnds: []
-  max_warm_up: [0] 
+  warm_up_bnds: [ ]
+  max_warm_up: [ 0 ]
 
   optimizer:
     lr_boundaries: [
@@ -76,8 +76,25 @@ pipeline:
       0.00003125,
       0.000015625
     ]
+    loss_boundaries: [
+      20000,
+      25000,
+      30000,
+      35000,
+      40000,
+      45000
+    ]
+    loss_values: [
+      10,
+      5,
+      2.5,
+      1.25,
+      0.625,
+      0.3125,
+      0.15625
+    ]
 
-  base_data_dir : ../data/output
+  base_data_dir: ../data/output
   main_log_dir: ./logs
   train_sum_dir: ./train_log
   output_dir: ./output
@@ -86,7 +103,7 @@ pipeline:
 
   data_generator:
     #translate: [-0.5, -0.5, -0.5]
-    scale: [1.0, 1.0, 1.0]
+    scale: [ 1.0, 1.0, 1.0 ]
 
     train:
       stride: 1 # update timestep accordingly!
@@ -95,25 +112,25 @@ pipeline:
       is2d: False
       num_workers: 1
       sample_cnt: 25
-      
+
       augment:
-        jitter_inp: 
-          channels: 
-            pos: [0.001, 0.001, 0.001] # 1% of dx
+        jitter_inp:
+          channels:
+            pos: [ 0.001, 0.001, 0.001 ] # 1% of dx
         rotate:
           rot_axis: 1
         #rotate:
-        #  strength: [1.0, 1.0, 1.0] 
+        #  strength: [1.0, 1.0, 1.0]
 
       # augment:
-      #   jitter: 
-      #     channels: 
+      #   jitter:
+      #     channels:
       #       pos: 0.001
       #       vel: 0.001
       #       grav: 0.001
       #       box: 0.001
       #       box_normals: 0.001
-        
+
       #   shuffle: True
 
       #   rotate:
