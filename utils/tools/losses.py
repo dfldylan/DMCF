@@ -1,4 +1,5 @@
 import open3d.ml.tf as ml3d
+import numpy as np
 import tensorflow as tf
 from utils.tools.sampling import gather_point, farthest_point_sample
 from utils.tools.tf_approxmatch import approx_match, match_cost
@@ -310,14 +311,33 @@ def get_dilated_pos(pos,
     return dilated_pos, pcnt, idx
 
 
-def compute_density(out_pos, in_pos=None, radius=0.005, win=get_window_func('poly6'), mass=None, nns=None,
-                    ignore_neighbors_grad=False):
+def cubic_spline_kernel_3d(h, *, r=None, q=None):
+    # 计算sigma的值
+    sigma = 8 / (np.pi * h ** 3)
+
+    # 检查输入参数
+    if q is None and r is not None:
+        q = r / h
+    elif q is None and r is None:
+        raise ValueError("Either r or q must be provided")
+
+    # 定义条件
+    cond1 = tf.logical_and(tf.greater(q, 0), tf.less_equal(q, 0.5))
+    cond2 = tf.logical_and(tf.greater(q, 0.5), tf.less_equal(q, 1.0))
+
+    # 计算每个条件下的值
+    result1 = sigma * (6 * (q ** 3 - q ** 2) + 1)
+    result2 = sigma * (2 * (1 - q ** 3))
+
+    # 根据条件选择结果
+    result = tf.where(cond1, result1, tf.where(cond2, result2, tf.zeros_like(q)))
+
+    return result
+
+
+def compute_density(out_pos, in_pos=None, radius=0.005, mass=None, nns=None, ignore_neighbors_grad=False):
     if in_pos is None:
         in_pos = out_pos
-
-    if win is None:
-        print("WARNING: No window function for density function!")
-        win = lambda x: x
 
     radius = tf.convert_to_tensor(radius)
     if nns is not None:
@@ -336,13 +356,13 @@ def compute_density(out_pos, in_pos=None, radius=0.005, win=get_window_func('pol
     # dist = tf.expand_dims(out_pos, axis=0) - tf.expand_dims(out_pos, axis=1)
     dist = tf.reduce_sum(dist ** 2, axis=-1) / radius ** 2
     if mass is None:
-        dens = tf.reduce_sum(win(dist), axis=-1)
+        add_sum = tf.reduce_sum(cubic_spline_kernel_3d(radius, r=dist), axis=-1)
     else:
         neighbors_mass = tf.RaggedTensor.from_row_splits(
             values=tf.gather(mass, neighbors_index),
             row_splits=neighbors_row_splits)
-        dens = tf.reduce_sum(win(dist) * neighbors_mass, axis=-1)
-    return dens
+        add_sum = tf.reduce_sum(cubic_spline_kernel_3d(radius, r=dist) * neighbors_mass[...,-1], axis=-1)
+    return add_sum
 
 
 def quat_mult(q, r):
@@ -409,7 +429,8 @@ def compute_pressure(out_pts,
                      win=get_window_func('poly6')):
     if inp_pts is None:
         inp_pts = out_pts
-    dens = compute_density(out_pts, inp_pts, win=win) if dens is None else dens
+    raise NotImplementedError('compute_pressure')
+    dens = compute_density(out_pts, inp_pts) if dens is None else dens
     pres = tf.keras.activations.relu(stiffness * ((dens / rest_dens) ** 7 - 1))
     return pres
 
@@ -423,8 +444,8 @@ def density_loss(gt,
                  win=None,
                  use_max=False,
                  **kwargs):
-    pred_dens = compute_density(pred, pred_in, radius, win=win)
-    gt_dens = compute_density(gt, gt_in, radius, win=win)
+    pred_dens = compute_density(pred, pred_in, radius)
+    gt_dens = compute_density(gt, gt_in, radius)
 
     rest_dens = tf.math.reduce_max(gt_dens)
 

@@ -255,7 +255,7 @@ class PBFNet(BaseModel):
             dens = compute_density(all_pos,
                                    all_pos,
                                    self.dens_radius[0],
-                                   win=get_window_func(self.window_dens))
+                                   )
             if self.dens_feats:
                 fluid_feats.append(tf.expand_dims(dens[:tf.shape(pos)[0]], -1))
                 box_feats.append(tf.expand_dims(dens[tf.shape(pos)[0]:], -1))

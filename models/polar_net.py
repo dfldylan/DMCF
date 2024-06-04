@@ -208,7 +208,7 @@ class PolarNet(PBFReal):
         all_pos = tf.concat([pos, box], axis=0)
         self.all_pos = all_pos
         if self.dens_feats or self.pres_feats:
-            dens = compute_density(all_pos, all_pos, self.query_radii, win=get_window_func(self.window_dens))
+            dens = compute_density(all_pos, all_pos, self.query_radii)
             if self.dens_feats:
                 fluid_feats.append(tf.expand_dims(dens[:tf.shape(pos)[0]], -1))
                 box_feats.append(tf.expand_dims(dens[tf.shape(pos)[0]:], -1))
