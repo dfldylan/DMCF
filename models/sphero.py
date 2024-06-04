@@ -134,6 +134,7 @@ class SPHeroNet(PBFReal):
                  activation='relu',
                  **kwargs):
 
+        assert len(particle_radii) == 1
         super().__init__(name=name,
                          timestep=timestep,
                          particle_radii=particle_radii,
@@ -145,12 +146,7 @@ class SPHeroNet(PBFReal):
                          viscosity=viscosity,
                          window_dens=window_dens,
                          **kwargs)
-        self.query_radii = particle_radii[0] * 2 if query_radii is None else query_radii
-        diameter = 2.0 * particle_radii[0]
-        volume = diameter ** 3
-        self.fluid_mass = volume * self.m_density0
-        self.solid_mass = 2.5 * self.fluid_mass
-
+        self.query_radii = particle_radii[0] * 4.5 if query_radii is None else query_radii
         self.use_mass = use_mass
         self.use_vel = use_vel
         self.use_acc = use_acc
@@ -229,9 +225,10 @@ class SPHeroNet(PBFReal):
                    vel_corr=None,
                    tape=None,
                    **kwargs):
-        pos, vel, _ = super(SPHeroNet, self).preprocess(data, training, vel_corr, tape, **kwargs)
+        pos, vel, solid_masses = super(SPHeroNet, self).preprocess(data, training, vel_corr, tape, **kwargs)
         _pos, _vel, acc, feats, box, bfeats = data
-        # self.solid_masses = 1.2 * solid_masses
+        self.fluid_masses = self.fluid_mass * tf.ones_like(pos[:, :1])
+        self.solid_masses = tf.expand_dims(solid_masses, axis=-1)
         #
         # preprocess features
         #
@@ -239,8 +236,8 @@ class SPHeroNet(PBFReal):
         fluid_feats = [tf.ones_like(pos[:, :1])]
         box_feats = [tf.ones_like(box[:, :1])]
         if self.use_mass:
-            fluid_feats.append(fluid_feats[0] * self.fluid_mass)
-            box_feats.append(box_feats[0] * self.solid_mass)
+            fluid_feats.append(self.fluid_masses)
+            box_feats.append(self.solid_masses)
         if self.use_vel:
             fluid_feats.append(vel)
         if self.use_acc:
@@ -253,8 +250,8 @@ class SPHeroNet(PBFReal):
         all_pos = tf.concat([pos, box], axis=0)
         self.all_pos = all_pos
         if self.dens_feats or self.pres_feats:
-            dens = compute_density(all_pos, all_pos, self.query_radii, mass=tf.concat(
-                [self.fluid_mass * tf.ones_like(pos[:, :1]), self.solid_mass * tf.ones_like(box[:, :1])], axis=0))
+            dens = compute_density(all_pos, all_pos, self.query_radii,
+                                   mass=tf.concat([self.fluid_masses, self.solid_masses], axis=0))
             if self.dens_feats:
                 fluid_feats.append(tf.expand_dims(dens[:tf.shape(pos)[0]], -1))
                 box_feats.append(tf.expand_dims(dens[tf.shape(pos)[0]:], -1))
@@ -349,8 +346,7 @@ class SPHeroNet(PBFReal):
             tf.stop_gradient(num_fluid_neighbors), tf.stop_gradient(num_solid_neighbors)
 
         all_pos = tf.concat([pos, box], axis=0)
-        mass = tf.concat([self.fluid_mass * tf.ones_like(pos[:, 0]), self.solid_mass * tf.ones_like(box[:, 0])],
-                         axis=0)
+        mass = tf.concat([self.fluid_masses, self.solid_masses], axis=0)
         density = compute_density(out_pos=pos, in_pos=all_pos, radius=self.query_radii, mass=mass,
                                   ignore_neighbors_grad=True)
 
