@@ -359,11 +359,11 @@ def compute_kernel_sum(out_pos, radius, in_pos=None, in_mass=None, nns=None, ign
     dist = neighbors - tf.expand_dims(out_pos, axis=1)
     # dist = tf.expand_dims(out_pos, axis=0) - tf.expand_dims(out_pos, axis=1)
     dist = tf.reduce_sum(dist ** 2, axis=-1) / radius ** 2
-    if mass is None:
+    if in_mass is None:
         add_sum = tf.reduce_sum(cubic_spline_kernel_3d(radius, r=dist), axis=-1)
     else:
         neighbors_mass = tf.RaggedTensor.from_row_splits(
-            values=tf.gather(mass, neighbors_index),
+            values=tf.gather(in_mass, neighbors_index),
             row_splits=neighbors_row_splits)
         add_sum = tf.reduce_sum(cubic_spline_kernel_3d(radius, r=dist) * neighbors_mass[...,-1], axis=-1)
     return add_sum
