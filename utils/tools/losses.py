@@ -356,9 +356,11 @@ def compute_kernel_sum(out_pos, radius, in_pos=None, in_mass=None, nns=None, ign
 
     if ignore_neighbors_grad:
         neighbors = tf.stop_gradient(neighbors)
-    dist = neighbors - tf.expand_dims(out_pos, axis=1)
-    # dist = tf.expand_dims(out_pos, axis=0) - tf.expand_dims(out_pos, axis=1)
-    dist = tf.reduce_sum(dist ** 2, axis=-1) / radius ** 2
+
+    # 计算 RaggedTensor 的范数
+    squared_dist = tf.reduce_sum(tf.square(neighbors - tf.expand_dims(out_pos, axis=1)), axis=-1)
+    dist = tf.sqrt(squared_dist)
+
     if in_mass is None:
         add_sum = tf.reduce_sum(cubic_spline_kernel_3d(radius, r=dist), axis=-1)
     else:
