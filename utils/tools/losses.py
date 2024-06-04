@@ -336,6 +336,10 @@ def cubic_spline_kernel_3d(h, *, r=None, q=None):
 
 
 def compute_density(out_pos, in_pos=None, radius=0.005, mass=None, nns=None, ignore_neighbors_grad=False):
+    return compute_kernel_sum(out_pos, radius, in_pos, mass, nns, ignore_neighbors_grad)
+
+
+def compute_kernel_sum(out_pos, radius, in_pos=None, in_mass=None, nns=None, ignore_neighbors_grad=False):
     if in_pos is None:
         in_pos = out_pos
 

@@ -5,7 +5,7 @@ from os.path import join, exists, dirname, abspath
 from abc import ABC, abstractmethod
 
 from o3d.utils import Config
-from utils.tools.losses import get_window_func, compute_density
+from utils.tools.losses import get_window_func, compute_kernel_sum
 from utils.tools.neighbor import neighbors_mask, reduce_subarrays_sum_multi
 
 
@@ -281,8 +281,8 @@ class BaseModel(ABC, tf.keras.Model):
         return pos, vel
 
     def calculate_boundary_mass(self, box, query_radii, rest_dens):
-        dens = compute_density(box, radius=query_radii)
-        box_masses = rest_dens / dens
+        add_sum = compute_kernel_sum(box, radius=query_radii).numpy()
+        box_masses = rest_dens / add_sum
         return box_masses
 
     def compute_lagrange_multiplier(self, position, mass, neighbors, density_err, density0, radius, eps=1.0e-6):
