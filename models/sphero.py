@@ -298,6 +298,9 @@ class SPHeroNet(PBFReal):
             dense = self.all_layers[i].get('dense')
             if i == 1:
                 nns = combine_nns(self.fluid_nns, self.solid_nns)
+                if training == True and tf.shape(nns[-1])[0] > 670000:
+                    raise tf.errors.ResourceExhaustedError(None, None,
+                                                           f"Neighbor count {tf.shape(nns[-1])[0].numpy()} too large")
                 ans_conv, _ = conv(feats, all_pos, pos, self.query_radii, neighbors=nns)
                 ans_dense = dense(feats[:tf.shape(pos)[0]])
                 ans = ans_conv + ans_dense

@@ -203,23 +203,6 @@ class Simulator(BasePipeline):
                 # eval for complete sequence
                 pos, vel = results[i][t][:2]
                 loss = {}
-                # loss = model.loss(
-                #    [pos, vel], [results[i][t], target_pos[t], target_pos[t - 1], 0])
-
-                # for l, v in cfg.metrics.items():
-                #     if v["typ"] == "hist":
-                #         feat = v.get("feat", "vel")
-                #         if feat == "vel":
-                #             loss[l] = np.mean(get_loss(**v)(target_vel[t], vel))
-                #     elif v["typ"] == "dense":
-                #         loss[l] = np.mean(get_loss(**v)(
-                #             target_pos[t], pos,
-                #             tf.concat([pos, data["box"][0]], axis=0),
-                #             tf.concat([target_pos[t], data["box"][0]], axis=0)))
-                #     elif v["typ"] == "chamfer" and v["mode"] > 0:
-                #         loss[l] = np.mean(get_loss(**v)(target_pos[t], tf.clip_by_value(pos, -0.5, 0.5)))
-                #     else:
-                #         loss[l] = np.mean(get_loss(**v)(target_pos[t], pos))
 
                 if t % cfg.data_generator.valid.get("eval_stride", 1) == 0:
                     if data["box"][0].shape[0] > 0:
@@ -261,9 +244,16 @@ class Simulator(BasePipeline):
                             vel, target_vel[t])
 
                     # mse for single step only
-                    pos_sub = self.model(
-                        [target_pos[t - 1], target_vel[t - 1]] +
-                        results[i][t][2:])[0]
+                    try:
+                        pos_sub = self.model(
+                            [target_pos[t - 1], target_vel[t - 1]] +
+                            results[i][t][2:])[0]
+                    except tf.errors.ResourceExhaustedError as e:
+                        logging.info(f"ResourceExhaustedError: {e.message}")
+                        tf.keras.backend.clear_session()
+                        tf.compat.v1.reset_default_graph()
+                        continue
+
                     loss['mse_single_val'] = np.mean(
                         distance(target_pos[t], pos_sub))
 
@@ -374,7 +364,13 @@ class Simulator(BasePipeline):
                     data_fetch_latency = time.time() - data_fetch_start
                 self.log_scalar_every_n_minutes(self.writer, step, 5, 'DataLatency', data_fetch_latency)
 
-                loss, pre_steps = self.train_step(model, cfg, self.optimizer, data, time_weights)
+                try:
+                    loss, pre_steps = self.train_step(model, cfg, self.optimizer, data, time_weights)
+                except tf.errors.ResourceExhaustedError as e:
+                    logging.info(f"ResourceExhaustedError: {e.message}")
+                    tf.keras.backend.clear_session()
+                    tf.compat.v1.reset_default_graph()
+                    continue
 
                 if iteration == 0 and epoch == start_epoch:
                     self.log_param_count()
