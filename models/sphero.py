@@ -45,11 +45,17 @@ class SPHeroConv(tf.keras.layers.Layer):
              input_features,  # [N_in, 3]
              input_positions,
              output_positions,
-             extents):
-        neighbors = self.fixed_radius_search(input_positions, output_positions, extents)
+             extents,
+             neighbors=None,
+             ):
+        if neighbors is None:
+            neighbors = self.fixed_radius_search(input_positions, output_positions, extents)
+
         neighbors_index, neighbors_row_splits, _ = neighbors
-        # neighbors_index = tf.cast(neighbors_index, tf.int32)
-        neighbors_row_splits = tf.cast(neighbors_row_splits, tf.int32)
+
+        output_num = tf.shape(output_positions)[0]
+        neighbors_row_splits = neighbors_row_splits[:output_num + 1]
+        neighbors_index = neighbors_index[:neighbors_row_splits[-1]]
 
         # 计算极坐标和权重
         spherical_coords = self.cartesian_to_spherical(
