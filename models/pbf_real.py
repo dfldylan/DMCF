@@ -45,7 +45,7 @@ class PBFReal(BaseModel):
         self.m_neighborSearch = o3dml.layers.FixedRadiusSearch(ignore_query_point=True, return_distances=True)
         self.m_density0 = density0
         diameter = 2.0 * particle_radii[0]
-        volume = diameter * diameter * diameter * 0.8
+        volume = diameter * diameter * diameter
         self.fluid_mass = volume * self.m_density0
         self.m_maxIter = solver_iterations
         self.m_viscosity = viscosity
