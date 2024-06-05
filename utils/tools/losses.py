@@ -322,8 +322,8 @@ def cubic_spline_kernel_3d(h, *, r=None, q=None):
         raise ValueError("Either r or q must be provided")
 
     # 定义条件
-    cond1 = tf.logical_and(tf.greater(q, 0), tf.less_equal(q, 0.5))
-    cond2 = tf.logical_and(tf.greater(q, 0.5), tf.less_equal(q, 1.0))
+    cond1 = tf.logical_and(tf.greater_equal(q, 0), tf.less(q, 0.5))
+    cond2 = tf.logical_and(tf.greater_equal(q, 0.5), tf.less(q, 1.0))
 
     # 计算每个条件下的值
     result1 = sigma * (6 * (q ** 3 - q ** 2) + 1)
@@ -367,7 +367,7 @@ def compute_kernel_sum(out_pos, radius, in_pos=None, in_mass=None, nns=None, ign
         neighbors_mass = tf.RaggedTensor.from_row_splits(
             values=tf.gather(in_mass, neighbors_index),
             row_splits=neighbors_row_splits)
-        add_sum = tf.reduce_sum(cubic_spline_kernel_3d(radius, r=dist) * neighbors_mass[...,-1], axis=-1)
+        add_sum = tf.reduce_sum(cubic_spline_kernel_3d(radius, r=dist) * neighbors_mass[..., -1], axis=-1)
     return add_sum
 
 
