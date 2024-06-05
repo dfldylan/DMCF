@@ -1,7 +1,7 @@
 import tensorflow as tf
 import open3d.ml.tf as ml3d
 from utils.tools.losses import get_window_func, compute_density, compute_pressure
-from utils.tools.neighbor import reduce_subarrays_sum_multi
+from utils.tools.neighbor import reduce_subarrays_sum_multi, combine_nns
 
 from .pbf_real import PBFReal
 
@@ -248,7 +248,6 @@ class SPHeroNet(PBFReal):
             box_feats.append(bfeats)
 
         all_pos = tf.concat([pos, box], axis=0)
-        self.all_pos = all_pos
         if self.dens_feats or self.pres_feats:
             dens = compute_density(all_pos, all_pos, self.query_radii,
                                    mass=tf.concat([self.fluid_masses, self.solid_masses], axis=0))
@@ -290,6 +289,7 @@ class SPHeroNet(PBFReal):
         pos, vel, feats = prev
         _pos, _vel, acc, _feats, box, bfeats = data
         # feats = feats[:tf.shape(pos)[0]]
+        all_pos = tf.concat([pos, box], axis=0)
 
         ans_convs = [feats]  # [self.channels*3]
         for i in range(1, len(self.all_layers)):
@@ -297,13 +297,14 @@ class SPHeroNet(PBFReal):
             conv = self.all_layers[i].get('conv')
             dense = self.all_layers[i].get('dense')
             if i == 1:
-                ans_conv, _ = conv(feats, self.all_pos, pos, self.query_radii)
+                nns = combine_nns(self.fluid_nns, self.solid_nns)
+                ans_conv, _ = conv(feats, all_pos, pos, self.query_radii, neighbors=nns)
                 ans_dense = dense(feats[:tf.shape(pos)[0]])
                 ans = ans_conv + ans_dense
             else:
                 ans_dense = dense(feats)
                 if conv is not None:
-                    ans_conv, _ = conv(feats, pos, pos, self.query_radii)
+                    ans_conv, _ = conv(feats, pos, pos, self.query_radii, neighbors=self.fluid_nns)
                     ans = ans_conv + ans_dense
                 else:
                     ans = ans_dense
@@ -314,8 +315,7 @@ class SPHeroNet(PBFReal):
         #
         # scale to better match the scale of the output distribution
         #
-        pcnt = tf.shape(pos)[0]
-        self.pos_correction = self.out_scale * out[:pcnt]
+        self.pos_correction = self.out_scale * out
         pos2_corrected, vel2_corrected = self.compute_new_pos_vel(_pos, _vel, pos, vel, self.pos_correction)
 
         return [pos2_corrected, vel2_corrected]
