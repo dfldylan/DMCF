@@ -345,10 +345,10 @@ def compute_kernel_sum(out_pos, radius, in_pos=None, in_mass=None, nns=None, ign
 
     radius = tf.convert_to_tensor(radius)
     if nns is not None:
-        neighbors_index, neighbors_row_splits, dist = nns
+        neighbors_index, neighbors_row_splits, _ = nns
     else:
         fixed_radius_search = ml3d.layers.FixedRadiusSearch()
-        neighbors_index, neighbors_row_splits, dist = fixed_radius_search(in_pos, out_pos, radius)
+        neighbors_index, neighbors_row_splits, _ = fixed_radius_search(in_pos, out_pos, radius)
 
     neighbors = tf.RaggedTensor.from_row_splits(
         values=tf.gather(in_pos, neighbors_index),
@@ -359,15 +359,14 @@ def compute_kernel_sum(out_pos, radius, in_pos=None, in_mass=None, nns=None, ign
 
     # 计算 RaggedTensor 的范数
     squared_dist = tf.reduce_sum(tf.square(neighbors - tf.expand_dims(out_pos, axis=1)), axis=-1)
-    dist = tf.sqrt(squared_dist)
 
     if in_mass is None:
-        add_sum = tf.reduce_sum(cubic_spline_kernel_3d(radius, r=dist), axis=-1)
+        add_sum = tf.reduce_sum(poly6_kernel(radius, r2=squared_dist), axis=-1)
     else:
         neighbors_mass = tf.RaggedTensor.from_row_splits(
             values=tf.gather(in_mass, neighbors_index),
             row_splits=neighbors_row_splits)
-        add_sum = tf.reduce_sum(cubic_spline_kernel_3d(radius, r=dist) * neighbors_mass[..., -1], axis=-1)
+        add_sum = tf.reduce_sum(poly6_kernel(radius, r2=squared_dist) * neighbors_mass[..., -1], axis=-1)
     return add_sum
 
 
@@ -484,3 +483,46 @@ def approx_vel(pos_0, pos_1, n=None, m=None):
     vel = tf.expand_dims(pos_1, axis=2) - tf.expand_dims(pos_0, axis=1)
     match = tf.expand_dims(approx_match(pos_0, pos_1, n, m), axis=-1)
     return tf.reduce_sum(vel * match, axis=1)
+
+
+def poly6_kernel(h, *, r=None, r2=None):
+    # Define constants
+    coef = 315 / (64 * tf.constant(np.pi) * h ** 9)
+
+    # Calculate r2 if not provided
+    if r2 is None:
+        if r is not None:
+            r2 = tf.square(r)
+        else:
+            raise ValueError("Either r or r2 must be provided.")
+
+    h2 = h ** 2
+    # Calculate the kernel
+    result = coef * tf.pow((h2 - r2), 3)
+
+    # Apply the condition: 0 <= sqrt(r2) <= h
+    condition = r2 <= h2
+    result = tf.where(condition, result, tf.zeros_like(result))
+
+    return result
+
+
+if __name__ == '__main__':
+    # Test the function
+    r = tf.constant([0.1, 0.5, 1.0, 1.5], dtype=tf.float32)
+    h = 1.0
+    output = poly6_kernel(h, r)
+    print(output)
+
+    pos = tf.reshape(
+        tf.stack(tf.meshgrid(tf.range(-0.5, 0.5, 0.1), tf.range(-0.5, 0.5, 0.1), tf.range(-0.5, 0.5, 0.1)), axis=-1),
+        [-1, 3])
+    dens = 1000.
+    mass = dens * 0.1 ** 3
+
+    radius = np.arange(0.1, 0.3, 0.01, dtype=np.float32)
+
+    for item in radius:
+        density = compute_density(pos, radius=item, mass=mass * tf.ones_like(pos[:, :1], dtype=tf.float32),
+                                  ignore_neighbors_grad=True)
+        print(f"radius = {item},density = {tf.reduce_max(density)}")
