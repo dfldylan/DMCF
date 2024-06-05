@@ -26,20 +26,13 @@ class SPHeroConv(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         self.in_channels = input_shape[-1]
-        if self.sym:
-            self.kernel = self.add_weight(
-                name="kernel",
-                shape=[2, self.in_channels, self.filters],
-                initializer='glorot_uniform',
-                trainable=True
-            )
-        else:
-            self.kernel = self.add_weight(
-                name="kernel",
-                shape=[4, self.in_channels, self.filters],
-                initializer='glorot_uniform',
-                trainable=True
-            )
+        kernel_shape = [2, self.in_channels, self.filters] if self.sym else [4, self.in_channels, self.filters]
+        self.kernel = self.add_weight(
+            name="kernel",
+            shape=kernel_shape,
+            initializer='glorot_uniform',
+            trainable=True
+        )
         if self.use_bias:
             self.bias = self.add_weight(
                 name="bias",
@@ -57,20 +50,19 @@ class SPHeroConv(tf.keras.layers.Layer):
         neighbors_index, neighbors_row_splits, _ = neighbors
         # neighbors_index = tf.cast(neighbors_index, tf.int32)
         neighbors_row_splits = tf.cast(neighbors_row_splits, tf.int32)
-        # 获取每个query点的邻居数
-        neighbors_counts = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
-        expanded_query = tf.repeat(output_positions, neighbors_counts, axis=0)
-        difference = tf.gather(input_positions, neighbors_index) - expanded_query  # [_, 3]
 
         # 计算极坐标和权重
-        spherical_coords = self.cartesian_to_spherical(difference, extents)  # [_, 4]
+        spherical_coords = self.cartesian_to_spherical(
+            tf.gather(input_positions, neighbors_index) -
+            tf.repeat(output_positions, neighbors_row_splits[1:] - neighbors_row_splits[:-1], axis=0),
+            extents)  # [_, 4]
         if self.sym:
             spherical_coords = spherical_coords[:, :2]
-        kernel = tf.tensordot(spherical_coords, self.kernel, axes=1)  # [_, C_in, C_out]
 
-        neighbors_feats = tf.gather(input_features, neighbors_index)  # [_, C_in]
-        out = tf.reduce_sum(tf.expand_dims(neighbors_feats, axis=-1) * kernel, axis=1)  # [_, C_out]
-        out_features = reduce_subarrays_sum_multi(out, neighbors_row_splits)  # [N_out, C_out]
+        out_features = reduce_subarrays_sum_multi(tf.reduce_sum(
+            tf.gather(input_features, neighbors_index)[..., None] * tf.tensordot(spherical_coords,
+                                                                                 self.kernel, axes=1),
+            axis=1), neighbors_row_splits)  # [N_out, C_out]
 
         if self.use_bias:
             out_features += self.bias
