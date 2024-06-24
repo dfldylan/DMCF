@@ -88,7 +88,7 @@ class GNS(BaseModel):
         # # Use an Euler integrator to go from acceleration to position, assuming
         # # a dt=1 corresponding to the size of the finite difference.
         vel = _vel + prev * self.timestep
-        self.pos_correction = vel * self.timestep
+        self.pos_correction = (_vel + vel) / 2 * self.timestep
         new_position = _pos + self.pos_correction
         return new_position, vel
 
