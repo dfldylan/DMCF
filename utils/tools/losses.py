@@ -507,6 +507,20 @@ def poly6_kernel(h, *, r=None, r2=None):
     return result
 
 
+def boundary_loss(target, pred, box, radius):
+    fixed_radius_search = ml3d.layers.FixedRadiusSearch(ignore_query_point=True, dtype=tf.int32)
+    _, neighbors_row_splits, _ = fixed_radius_search(target, target, radius)
+    num_fluid_neighbors = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
+    _, neighbors_row_splits, _ = fixed_radius_search(box, target, radius)
+    num_solid_neighbors = neighbors_row_splits[1:] - neighbors_row_splits[:-1]
+
+    fluid_importance = 1 + tf.exp(-num_fluid_neighbors)
+    solid_importance = 1 + num_solid_neighbors
+
+    diff2 = tf.reduce_sum((pred - target) ** 2, axis=-1)
+    return tf.reduce_mean(fluid_importance * solid_importance * diff2)
+
+
 if __name__ == '__main__':
     # Test the function
     r = tf.constant([0.1, 0.5, 1.0, 1.5], dtype=tf.float32)

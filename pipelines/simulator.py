@@ -21,7 +21,7 @@ from o3d.utils import make_dir, PIPELINE, LogRecord, get_runid, code2md
 
 from datasets.dataset_reader_physics import get_dataloader, get_rollout, write_results
 
-from utils.tools.losses import density_loss, get_window_func, compute_density, get_window_func, emd_loss
+from utils.tools.losses import density_loss, get_window_func, compute_density, get_window_func, emd_loss, boundary_loss
 from utils.evaluation_helper import compare_dist, chamfer_distance, distance, merge_dicts
 from utils.hdf5_to_npz import write_npz
 import warnings
@@ -223,6 +223,7 @@ class Simulator(BasePipeline):
                                          tf.concat(
                                              [target_pos[t], data["box"][0]],
                                              axis=0),
+                                         radius=model.particle_radii[0],
                                          win=get_window_func("poly6")).numpy())
                         loss['max_dens_val'] = density_loss(
                             pos,
@@ -242,6 +243,10 @@ class Simulator(BasePipeline):
                         loss['vel_diff_val'] = compare_dist(target_vel[t], vel)
                         loss['vel_diff_val_2'] = compare_dist(
                             vel, target_vel[t])
+
+                        loss['weight_mse_val'] = boundary_loss(target_pos[t], pos, data['box'],
+                                                               radius=model.particle_radii[0])
+                        np.mean(distance(target_pos[t], pos))
 
                     # mse for single step only
                     try:
